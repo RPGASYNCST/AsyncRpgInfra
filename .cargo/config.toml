@@ -1,0 +1,9 @@
+[alias]
+fmt-check = "fmt --all -- --check"
+lint = "clippy --workspace --all-targets --all-features -- -D warnings -W clippy::dbg_macro -W clippy::todo -W clippy::unwrap_used"
+check-all = "check --workspace --all-targets --all-features"
+
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+

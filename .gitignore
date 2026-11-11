@@ -1,0 +1,23 @@
+# Compilação do Cargo
+/target/
+
+# Relatórios gerados localmente ou pela CI
+lcov.info
+junit.xml
+*.profraw
+
+# Arquivos de IDE / Sistema Operacional
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Variáveis de ambiente locais
+.env
+.env.*
+!.env.example
+
+# NOTA: Cargo.lock NÃO deve ser ignorado em projetos binários/aplicações (Iced),
+# pois garante builds reprodutíveis (--locked) e auditoria (cargo audit).
+
