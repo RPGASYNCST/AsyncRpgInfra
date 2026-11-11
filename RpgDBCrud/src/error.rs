@@ -1,14 +1,22 @@
+use crate::validacao::ErroCampo;
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
 use sqlx::error::ErrorKind;
 
+/// Todas as respostas de erro saem como JSON:
+/// `{"error": "mensagem"}` e, em falhas de validação, também `"campos": [{"campo", "mensagem"}]`.
 #[derive(Debug)]
 pub enum AppError {
     NotFound(String),
     BadRequest(String),
     Conflict(String),
+    /// Campos inválidos (422).
+    Validacao(Vec<ErroCampo>),
+    /// Requisição malformada rejeitada antes do handler (JSON, query ou caminho inválidos).
+    Entrada(StatusCode, String),
     Database(sqlx::Error),
 }
 
@@ -48,22 +56,54 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
+impl From<JsonRejection> for AppError {
+    fn from(rej: JsonRejection) -> Self {
+        Self::Entrada(
+            rej.status(),
+            format!("Corpo JSON inválido: {}", rej.body_text()),
+        )
+    }
+}
+
+impl From<QueryRejection> for AppError {
+    fn from(rej: QueryRejection) -> Self {
+        Self::Entrada(
+            StatusCode::BAD_REQUEST,
+            format!("Parâmetros de consulta inválidos: {}", rej.body_text()),
+        )
+    }
+}
+
+impl From<PathRejection> for AppError {
+    fn from(rej: PathRejection) -> Self {
+        Self::Entrada(
+            StatusCode::BAD_REQUEST,
+            format!("Parâmetro de caminho inválido: {}", rej.body_text()),
+        )
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            Self::Conflict(msg) => (StatusCode::CONFLICT, msg),
+        let (status, body) = match self {
+            Self::NotFound(msg) => (StatusCode::NOT_FOUND, json!({ "error": msg })),
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, json!({ "error": msg })),
+            Self::Conflict(msg) => (StatusCode::CONFLICT, json!({ "error": msg })),
+            Self::Validacao(campos) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                json!({ "error": "Dados inválidos.", "campos": campos }),
+            ),
+            Self::Entrada(status, msg) => (status, json!({ "error": msg })),
             Self::Database(err) => {
                 // O detalhe fica só no log do servidor; o cliente não recebe estrutura interna do banco.
                 tracing::error!("Erro no banco de dados MariaDB: {err}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "Erro interno ao acessar o banco de dados.".to_string(),
+                    json!({ "error": "Erro interno ao acessar o banco de dados." }),
                 )
             }
         };
 
-        (status, Json(json!({ "error": message }))).into_response()
+        (status, Json(body)).into_response()
     }
 }

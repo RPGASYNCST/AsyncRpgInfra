@@ -1,7 +1,10 @@
 mod error;
+mod extract;
+mod listagem;
 mod routes;
+mod validacao;
 
-use axum::extract::State;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -10,7 +13,13 @@ use sqlx::mysql::MySqlPoolOptions;
 use sqlx::MySqlPool;
 use std::env;
 use std::time::Duration;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
+
+/// Tamanho máximo do corpo de uma requisição (cobre fichas JSON de até 1 MB com folga).
+const CORPO_MAX_BYTES: usize = 2 * 1024 * 1024;
+/// Tempo máximo de processamento de uma requisição.
+const REQUISICAO_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,6 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/health", get(health_check))
         .nest("/api", routes::api_router())
+        .fallback(rota_inexistente)
+        .layer(DefaultBodyLimit::max(CORPO_MAX_BYTES))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUISICAO_TIMEOUT,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(pool.clone());
 
@@ -55,6 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pool.close().await;
     tracing::info!("Servidor RpgDBCrud encerrado.");
     Ok(())
+}
+
+async fn rota_inexistente() -> error::AppError {
+    error::AppError::NotFound("Rota não encontrada.".to_string())
 }
 
 /// Responde 200 quando a API e o MariaDB estão acessíveis e 503 quando o banco não responde.
