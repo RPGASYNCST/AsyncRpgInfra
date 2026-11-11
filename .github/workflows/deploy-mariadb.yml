@@ -1,0 +1,132 @@
+name: Deploy MariaDB (Aplicação)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "database/**"
+      - ".github/workflows/deploy-mariadb.yml"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      infra_repo:
+        description: "Repositório de infraestrutura (ex: RPGASYNCST/AsyncRpgInfra)"
+        required: false
+        type: string
+      infra_ref:
+        description: "Branch ou tag do repositório de infraestrutura"
+        required: false
+        type: string
+        default: "main"
+      run_migrations:
+        description: "Executar sqlx migrate run se houver pasta migrations/"
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      INFRA_TOKEN:
+        description: "Token de leitura caso o AsyncRpgInfra seja privado"
+        required: false
+      MARIADB_ROOT_PASSWORD:
+        required: true
+      MARIADB_PASSWORD:
+        required: true
+      MARIADB_USER:
+        required: false
+      MARIADB_DATABASE:
+        required: false
+      MARIADB_PORT:
+        required: false
+
+concurrency:
+  group: deploy-mariadb-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-db:
+    name: Subir/Atualizar Container MariaDB & Migrations
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout do repositório atual
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Baixar pasta database/ do AsyncRpgInfra (quando chamado via workflow_call)
+        if: ${{ ! hashFiles('database/docker-compose.yml') }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.infra_repo || format('{0}/AsyncRpgInfra', github.repository_owner) }}
+          ref: ${{ inputs.infra_ref || 'main' }}
+          path: .async-rpg-infra
+          token: ${{ secrets.INFRA_TOKEN || github.token }}
+
+      - name: Verificar acesso ao Docker Compose (sem sudo)
+        run: |
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error::O usuário do runner ($USER) não tem permissão para acessar o Docker sem sudo."
+            echo "Execute uma única vez no servidor Linux:"
+            echo "  sudo usermod -aG docker $USER && sudo systemctl restart actions.runner.*"
+            exit 1
+          fi
+          docker compose version
+
+      - name: Sincronizar arquivos de configuração e subir MariaDB
+        env:
+          DB_ROOT_PASSWORD: ${{ secrets.MARIADB_ROOT_PASSWORD }}
+          DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD }}
+          DB_USER: ${{ secrets.MARIADB_USER || 'async_rpg_user' }}
+          DB_NAME: ${{ secrets.MARIADB_DATABASE || 'async_rpg' }}
+          DB_PORT: ${{ secrets.MARIADB_PORT || '3306' }}
+        run: |
+          if [ -z "$DB_ROOT_PASSWORD" ] || [ -z "$DB_PASSWORD" ]; then
+            echo "::error::As secrets MARIADB_ROOT_PASSWORD e MARIADB_PASSWORD precisam estar configuradas no GitHub (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+
+          DEPLOY_DIR="$HOME/async-rpg-mariadb"
+          mkdir -p "$DEPLOY_DIR/conf.d" "$DEPLOY_DIR/init"
+
+          SRC_DIR="database"
+          if [ -d ".async-rpg-infra/database" ]; then
+            SRC_DIR=".async-rpg-infra/database"
+          fi
+
+          cp "$SRC_DIR/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml"
+          cp -r "$SRC_DIR/conf.d/." "$DEPLOY_DIR/conf.d/"
+          cp -r "$SRC_DIR/init/." "$DEPLOY_DIR/init/"
+          rm -rf .async-rpg-infra
+
+          cat <<EOF > "$DEPLOY_DIR/.env"
+          MARIADB_PORT=${DB_PORT}
+          MARIADB_DATABASE=${DB_NAME}
+          MARIADB_USER=${DB_USER}
+          MARIADB_PASSWORD=${DB_PASSWORD}
+          MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+          EOF
+          chmod 600 "$DEPLOY_DIR/.env"
+
+          cd "$DEPLOY_DIR"
+          docker compose up -d --wait
+          docker compose ps
+
+      - name: Instalar sqlx-cli (se houver pasta migrations/)
+        if: ${{ inputs.run_migrations != false && hashFiles('migrations/**') != '' }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sqlx-cli
+
+      - name: Executar Migrations do sqlx no MariaDB
+        if: ${{ inputs.run_migrations != false && hashFiles('migrations/**') != '' }}
+        env:
+          DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD }}
+          DB_USER: ${{ secrets.MARIADB_USER || 'async_rpg_user' }}
+          DB_NAME: ${{ secrets.MARIADB_DATABASE || 'async_rpg' }}
+          DB_PORT: ${{ secrets.MARIADB_PORT || '3306' }}
+        run: |
+          export DATABASE_URL="mysql://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${DB_PORT}/${DB_NAME}"
+          sqlx database create
+          sqlx migrate run
+          echo "Migrations do sqlx aplicadas com sucesso no banco ${DB_NAME}!"
+

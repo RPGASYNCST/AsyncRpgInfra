@@ -1,8 +1,8 @@
-# AsyncRpgInfra — Pipeline Centralizada de CI (Rust & Iced)
+# AsyncRpgInfra — Pipeline Centralizada de CI & Banco MariaDB (Rust, Iced & SQLx)
 
-Repositório central de infraestrutura de Integração Contínua (CI), qualidade de código e auditoria de segurança da organização **`RPGASYNCST`** para aplicações desenvolvidas em **Rust** utilizando **Iced** e múltiplas dependências.
+Repositório central de infraestrutura de Integração Contínua (CI), qualidade de código, auditoria de segurança e **deploy do banco de dados MariaDB** da organização **`RPGASYNCST`** para aplicações desenvolvidas em **Rust** utilizando **Iced**, **SQLx** e múltiplas dependências.
 
-Este repositório funciona como um **Reusable Workflow (`workflow_call`)** executado em **Runner Próprio (Self-Hosted Linux)** sem necessidade de `sudo` durante a execução dos jobs.
+Este repositório opera em **Runner Próprio (Self-Hosted Linux)** **sem uso de `sudo`** durante a execução dos jobs.
 
 ---
 
@@ -14,14 +14,14 @@ flowchart TD
     Trigger --> Call["Chama RPGASYNCST/AsyncRpgInfra/.github/workflows/ci.yml@main"]
     Call --> Runner["Self-Hosted Runner (Linux)"]
 
-    subgraph Pipeline ["Execução no Runner Próprio (Sem Sudo)"]
+    subgraph Pipeline ["Execução da CI no Runner Próprio (Sem Sudo)"]
         direction TB
         J1["1. Formatação & Deps<br/>(cargo fmt + cargo machete)"]
         J2["2. Segurança & Licenças<br/>(cargo audit + cargo deny)"]
-        J3["3. Check & Clippy<br/>(dpkg check + cargo check + clippy)"]
-        J4["4. Testes Automatizados<br/>(xvfb-run cargo nextest + doctests)"]
+        J3["3. Check & Clippy + MariaDB CI (Porta 3307 RAM)<br/>(sqlx migrate run + cargo check + clippy)"]
+        J4["4. Testes Automatizados<br/>(xvfb-run cargo nextest + #[sqlx::test] + doctests)"]
         J5["5. Documentação & Cobertura<br/>(cargo doc + cargo llvm-cov)"]
-        Gate["6. CI Gate<br/>(Todos os Testes Passaram)"]
+        Gate["6. CI Gate<br/>(Remove MariaDB CI + Valida todos os jobs)"]
 
         J3 --> J4
         J3 --> J5
@@ -35,46 +35,42 @@ flowchart TD
     Runner --> Pipeline
     Gate -->|Sucesso| Merge["Ruleset libera o botão de Merge no PR"]
     Gate -->|Falha| Block["Ruleset bloqueia o Merge na main / develop"]
+    Merge -->|Merge na main / deploy| DeployDB["deploy-mariadb.yml<br/>Atualiza MariaDB da Aplicação (Porta 3306, Volume Persistente)<br/>+ Aplica sqlx migrate run"]
 ```
 
 ---
 
 ## 2. Estrutura deste Repositório
 
-Quando qualquer repositório de aplicação chama esta pipeline, os arquivos de configuração abaixo são injetados automaticamente no workspace caso o repositório da aplicação não possua uma versão própria:
-
-| Arquivo | Função |
+| Arquivo / Pasta | Função |
 | :--- | :--- |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Workflow reutilizável (`workflow_call`) com todos os jobs de validação, testes, cobertura e gatekeeper. |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Workflow reutilizável (`workflow_call`) com os jobs de validação, banco MariaDB efêmero para `sqlx` (`porta 3307`), testes, cobertura e `CI Gate`. |
+| [`.github/workflows/deploy-mariadb.yml`](.github/workflows/deploy-mariadb.yml) | Workflow de deploy/atualização do container **MariaDB 11.4 LTS** da aplicação (`porta 3306`, com volume persistente) e execução automática de migrations do `sqlx`. |
+| [`database/docker-compose.yml`](database/docker-compose.yml) | Definição Docker Compose do MariaDB da aplicação com volume persistente (`async_rpg_mariadb_data`), rede isolada e `healthcheck` nativo. |
+| [`database/conf.d/custom.cnf`](database/conf.d/custom.cnf) | Configuração do MariaDB otimizada para Rust/`sqlx` (`utf8mb4`, `utf8mb4_unicode_ci`, `UTC`, InnoDB tuning). |
+| [`database/init/01-init.sql`](database/init/01-init.sql) | Script SQL executado automaticamente na criação inicial do volume do MariaDB. |
+| [`database/.env.example`](database/.env.example) | Modelo de variáveis de ambiente e `DATABASE_URL` para conexão com o MariaDB. |
 | [`rustfmt.toml`](rustfmt.toml) | Regras padronizadas de formatação (`edition = "2021"`, `max_width = 100`, reordenação de imports). |
 | [`clippy.toml`](clippy.toml) | Limites de complexidade cognitiva e permissão de `unwrap`/`expect`/`dbg!` apenas em testes. |
-| [`deny.toml`](deny.toml) | Regras do `cargo-deny`: auditoria de advisories, bloqueio de wildcards e licenças permitidas pela árvore gráfica do **Iced / wgpu**. |
-| [`.config/nextest.toml`](.config/nextest.toml) | Perfil `ci` do `cargo-nextest` com *retries* para testes instáveis, timeouts e exportação de relatório JUnit (`junit.xml`). |
-| [`.cargo/config.toml`](.cargo/config.toml) | Configura o linker **`lld`** via `clang` no Linux (acelerando a compilação/linkagem pesada do Iced) e atalhos locais do Cargo. |
+| [`deny.toml`](deny.toml) | Regras do `cargo-deny`: auditoria de advisories, bloqueio de wildcards e licenças permitidas pela árvore do **Iced / wgpu / sqlx**. |
+| [`.config/nextest.toml`](.config/nextest.toml) | Perfil `ci` do `cargo-nextest` com *retries*, timeouts e exportação de relatório JUnit (`junit.xml`). |
+| [`.cargo/config.toml`](.cargo/config.toml) | Configura o linker **`lld`** via `clang` no Linux e atalhos locais do Cargo. |
 
 ---
 
-## 3. O que cada Job da Pipeline Valida
+## 3. Como Funciona o MariaDB (Aplicação vs. CI)
 
-1. **`Formatação (fmt) & Dependências (machete)`** (`fmt-and-deps`):
-   - `cargo fmt --all -- --check`: Falha se houver qualquer arquivo fora do padrão do `rustfmt.toml`.
-   - `cargo machete --with-metadata`: Detecta dependências declaradas no `Cargo.toml` que não estão sendo usadas no código.
-2. **`Segurança (audit) & Licenças (deny)`** (`security-and-licenses`):
-   - `cargo audit`: Verifica o `Cargo.lock` contra o banco de vulnerabilidades CVE do RustSec.
-   - `cargo deny check advisories bans licenses sources`: Garante que nenhuma dependência usa licenças restritivas não autorizadas, versões banidas ou fontes desconhecidas.
-3. **`Check & Clippy (Iced + Deps)`** (`lint-and-check`):
-   - Verifica com `dpkg -s` (em user-space, sem `sudo`) se todos os pacotes nativos do Linux exigidos pelo **Iced** (`wayland`, `x11`, `xkbcommon`, `vulkan`, `mesa`, `alsa`, `freetype`, `fontconfig`, `lld`, `xvfb`) estão instalados no runner.
-   - `cargo check --workspace --all-targets --all-features --locked`: Valida a compilação de todos os alvos.
-   - `cargo clippy`: Análise estática rigorosa com `-D warnings` (qualquer warning reprova a pipeline) e alertas para `dbg!`, `todo!`, `unimplemented!` e `unwrap()`.
-4. **`Testes (nextest + doctests)`** (`test`):
-   - `xvfb-run --auto-servernum cargo nextest run`: Executa os testes unitários e de integração dentro de um display gráfico virtual X11 (`Xvfb`), permitindo que testes que inicializem janelas/contextos do **Iced / winit** rodem em um servidor sem monitor.
-   - `cargo test --doc`: Executa os testes da documentação.
-   - Salva o relatório `junit.xml` como artefato da execução.
-5. **`Documentação e Cobertura`** (`docs-and-coverage`):
-   - `cargo doc --no-deps --document-private-items`: Garante que a documentação gera sem warnings ou links quebrados (`RUSTDOCFLAGS="-D warnings"`).
-   - `cargo llvm-cov nextest`: Calcula a cobertura de testes e publica o arquivo `lcov.info` como artefato.
-6. **`CI Gate (Todos os Testes Passaram)`** (`ci-gate`):
-   - Job consolidador que verifica se todos os 5 jobs anteriores passaram com `success`. Serve como check único para proteção de branches.
+Para garantir que os testes da pipeline **nunca** sujem ou apaguem dados reais da aplicação no mesmo servidor Linux, a arquitetura separa o MariaDB em **duas instâncias independentes**:
+
+| Instância | Container Docker | Porta | Armazenamento | Quando Roda |
+| :--- | :--- | :--- | :--- | :--- |
+| **MariaDB da Aplicação (Persistente)** | `async-rpg-mariadb` | `3306` *(configurável)* | Volume Docker persistente (`async_rpg_mariadb_data`) em `$HOME/async-rpg-mariadb` | Sempre ativo (`restart: unless-stopped`). Atualizado pelo workflow [`deploy-mariadb.yml`](.github/workflows/deploy-mariadb.yml). |
+| **MariaDB de Testes da CI (Efêmero)** | `async-rpg-mariadb-ci` | `3307` (`127.0.0.1`) | 100% em memória RAM (`--tmpfs /var/lib/mysql`) | Criado no início do job `lint-and-check`, usado pelo `sqlx` (check, clippy e `#[sqlx::test]`) e destruído automaticamente no job `ci-gate`. |
+
+### Suporte Automático ao `sqlx` na CI
+- A variável `DATABASE_URL="mysql://rpg_ci:rpg_ci_pass@127.0.0.1:3307/async_rpg_ci"` já fica exportada automaticamente em todos os jobs da CI.
+- Se o repositório da aplicação tiver uma pasta **`migrations/`**, a pipeline instala o `sqlx-cli` e executa `sqlx migrate run` antes do `cargo check` e `cargo clippy` (permitindo que as macros `sqlx::query!` validem o SQL em tempo de compilação contra o schema real do MariaDB).
+- O usuário de teste `rpg_ci` recebe permissão `GRANT ALL PRIVILEGES ON *.*` no container efêmero para que testes anotados com `#[sqlx::test]` possam criar e destruir bancos isolados livremente.
 
 ---
 
@@ -82,10 +78,11 @@ Quando qualquer repositório de aplicação chama esta pipeline, os arquivos de 
 
 Como a pipeline roda **100% sem `sudo`**, o administrador deve preparar a máquina Linux **uma única vez**:
 
-### 4.1. Instalar pacotes nativos do Iced e compilação (com usuário que possui `sudo`)
+### 4.1. Instalar pacotes nativos do Iced, compilação e Docker
 ```bash
 sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   curl git ca-certificates tar jq \
+  docker.io docker-compose-v2 \
   build-essential pkg-config cmake clang lld \
   libssl-dev libudev-dev libasound2-dev libexpat1-dev \
   libfreetype6-dev libfontconfig1-dev libxcb1-dev \
@@ -95,39 +92,54 @@ sudo apt-get update && sudo apt-get install -y --no-install-recommends \
   libinerama-dev libgl1-mesa-dev libvulkan-dev xvfb
 ```
 
-### 4.2. Instalar o Rust no usuário do Runner (sem `sudo`)
+### 4.2. Permitir que o usuário do Runner use Docker sem `sudo`
+Adicione o usuário que roda o runner ao grupo `docker`:
+```bash
+sudo usermod -aG docker <usuario-do-runner>
+```
+*(Se o serviço do runner já estiver rodando, reinicie-o com `sudo systemctl restart actions.runner.*` para aplicar o novo grupo).*
+
+### 4.3. Instalar o Rust no usuário do Runner (sem `sudo`)
 Logado no usuário Linux que executará o serviço do runner:
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component rustfmt,clippy,llvm-tools-preview
 source "$HOME/.cargo/env"
 ```
 
-### 4.3. Registrar o Runner na Organização `RPGASYNCST`
-1. No GitHub da organização `RPGASYNCST`, acesse **Settings → Actions → Runners → New runner** (ou diretamente no repositório da aplicação) e escolha **Linux x64**.
-2. Execute o `./config.sh` conforme as instruções da página (mantenha as labels padrão `self-hosted,linux`).
-3. Instale e inicie como serviço para rodar em background e iniciar junto com o servidor:
-   ```bash
-   sudo ./svc.sh install <usuario-do-runner>
-   sudo ./svc.sh start
-   ```
+---
+
+## 5. Configuração do Deploy do MariaDB da Aplicação
+
+### 5.1. Cadastrar as Secrets do Banco no GitHub
+No repositório `RPGASYNCST/AsyncRpgInfra` (ou nos Secrets da organização `RPGASYNCST`), vá em **Settings → Secrets and variables → Actions** e crie as seguintes **Repository/Organization Secrets**:
+
+| Secret | Obrigatória? | Descrição / Valor Padrão |
+| :--- | :---: | :--- |
+| `MARIADB_ROOT_PASSWORD` | **Sim** | Senha do usuário `root` do MariaDB. |
+| `MARIADB_PASSWORD` | **Sim** | Senha do usuário da aplicação. |
+| `MARIADB_USER` | Opcional | Nome do usuário da aplicação (padrão: `async_rpg_user`). |
+| `MARIADB_DATABASE` | Opcional | Nome do banco de dados (padrão: `async_rpg`). |
+| `MARIADB_PORT` | Opcional | Porta exposta no host (padrão: `3306`). |
+
+### 5.2. Como Disparar o Deploy do MariaDB
+- **Automaticamente**: Qualquer alteração na pasta `database/` mergeada na branch `main` do `AsyncRpgInfra` dispara o workflow [`deploy-mariadb.yml`](.github/workflows/deploy-mariadb.yml).
+- **Manualmente**: Na aba **Actions** do GitHub → selecione **Deploy MariaDB (Aplicação)** → clique em **Run workflow**.
+- **Pelo Repositório da Aplicação (com Migrations)**: O repositório da aplicação também pode chamar o `deploy-mariadb.yml` após um merge na `main` para garantir que o banco está no ar e rodar `sqlx migrate run` automaticamente.
 
 ---
 
-## 5. Como Conectar o Repositório da Aplicação a esta Pipeline
+## 6. Como Conectar o Repositório da Aplicação
 
-### 5.1. Liberar o acesso no `AsyncRpgInfra`
+### 6.1. Liberar o acesso no `AsyncRpgInfra`
 No repositório `RPGASYNCST/AsyncRpgInfra` no GitHub:
 1. Vá em **Settings → Actions → General**.
 2. Na seção **Access**, marque **Accessible from repositories in the 'RPGASYNCST' organization** e clique em **Save**.
-*(Nota: se o `AsyncRpgInfra` for privado e a organização estiver no plano Free sem compartilhamento de Actions privadas, crie um Personal Access Token com permissão de leitura em `Contents` e adicione como Secret `INFRA_TOKEN` no repositório da aplicação).*
 
-### 5.2. Adicionar o arquivo de chamada no repositório da Aplicação
-No repositório onde está o código Rust da sua aplicação:
-1. Certifique-se de que o arquivo **`Cargo.lock` está commitado no Git** (não ignore o `Cargo.lock` no `.gitignore`, pois `--locked` e `cargo audit` dependem dele).
-2. Crie o arquivo **`.github/workflows/ci.yml`** com o conteúdo abaixo:
+### 6.2. Adicionar o `.github/workflows/ci.yml` no repositório da Aplicação
+No repositório onde está o código Rust da sua aplicação (com o `Cargo.lock` commitado no Git), crie o arquivo **`.github/workflows/ci.yml`**:
 
 ```yaml
-name: CI
+name: CI & Database
 
 on:
   push:
@@ -137,69 +149,35 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 1. Roda todos os testes (fmt, machete, audit, deny, clippy, nextest + MariaDB de teste, docs, coverage)
   pipeline:
     uses: RPGASYNCST/AsyncRpgInfra/.github/workflows/ci.yml@main
+    secrets: inherit
+
+  # 2. (Opcional) Quando código é mergeado na main, garante o MariaDB de produção ativo e aplica as migrations do sqlx
+  deploy-database:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [pipeline]
+    uses: RPGASYNCST/AsyncRpgInfra/.github/workflows/deploy-mariadb.yml@main
     secrets: inherit
 ```
 
 ---
 
-## 6. Como Bloquear Merge Direto na `main` e `develop` (Exigir PR + Pipeline)
-
-Para garantir que ninguém faça `git push` direto para `main` ou `develop` e que todo código só entre via **Pull Request (MR)** com a **pipeline aprovada**:
+## 7. Como Bloquear Merge Direto na `main` e `develop` (Rulesets)
 
 1. Acesse o repositório da **Aplicação** no GitHub e vá em **Settings → Rules → Rulesets**.
 2. Clique em **New ruleset → New branch ruleset**.
-3. Preencha:
+3. Configure:
    - **Ruleset Name**: `Protecao main e develop`
    - **Enforcement status**: **Active**
-   - **Bypass list**: Deixe vazia (assim a regra vale inclusive para administradores).
+   - **Bypass list**: Vazia.
 4. Em **Target branches**:
-   - Clique em **Add target → Include default branch** (`main`).
-   - Clique em **Add target → Include by pattern** → digite `develop` e confirme.
+   - Adicione a **Default branch** (`main`) e o pattern **`develop`**.
 5. Em **Branch rules**, marque:
    - **[x] Restrict deletions**
    - **[x] Require a pull request before merging**
-     - Defina o número de aprovações desejado (`Required approvals`).
-     - Marque **Dismiss stale pull request approvals when new commits are pushed**.
-   - **[x] Require status checks to pass**
-     - Marque **Require branches to be up to date before merging**.
-     - Clique em **+ Add checks** e selecione:
-       - **`pipeline / CI Gate (Todos os Testes Passaram)`**
+   - **[x] Require status checks to pass** → clique em **+ Add checks** e adicione:
+     - **`pipeline / CI Gate (Todos os Testes Passaram)`**
    - **[x] Block force pushes**
 6. Clique em **Create**.
-
-> **Nota:** O status check `pipeline / CI Gate (Todos os Testes Passaram)` aparecerá na busca do **+ Add checks** assim que a pipeline rodar pela primeira vez no repositório da aplicação.
-
----
-
-## 7. Rodando as Verificações Localmente (Antes do Push)
-
-Para validar o código na sua máquina antes de abrir um Pull Request:
-
-```bash
-# 1. Verificar formatação
-cargo fmt --all -- --check
-
-# 2. Verificar dependências não utilizadas
-cargo machete --with-metadata
-
-# 3. Verificar vulnerabilidades e licenças
-cargo audit
-cargo deny check advisories bans licenses sources
-
-# 4. Rodar Clippy com as mesmas flags da pipeline
-cargo clippy --workspace --all-targets --all-features --locked -- \
-  -D warnings \
-  -W clippy::dbg_macro \
-  -W clippy::todo \
-  -W clippy::unimplemented \
-  -W clippy::unwrap_used \
-  -W clippy::inefficient_to_string \
-  -W clippy::needless_pass_by_value
-
-# 5. Executar testes unitários, integração e doctests
-cargo nextest run --workspace --all-features --locked
-cargo test --doc --workspace --all-features --locked
-```
-

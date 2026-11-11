@@ -1,0 +1,35 @@
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: async-rpg-mariadb
+    restart: unless-stopped
+    ports:
+      - "${MARIADB_PORT:-3306}:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:?Defina MARIADB_ROOT_PASSWORD}"
+      MARIADB_DATABASE: "${MARIADB_DATABASE:-async_rpg}"
+      MARIADB_USER: "${MARIADB_USER:-async_rpg_user}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD:?Defina MARIADB_PASSWORD}"
+      TZ: "UTC"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./conf.d:/etc/mysql/conf.d:ro
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - async_rpg_net
+
+volumes:
+  mariadb_data:
+    name: async_rpg_mariadb_data
+
+networks:
+  async_rpg_net:
+    name: async_rpg_net
+    driver: bridge
+
