@@ -6,10 +6,10 @@ services:
     ports:
       - "${MARIADB_PORT:-3306}:3306"
     environment:
-      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:asyncrpg#20022026}"
-      MARIADB_DATABASE: "${MARIADB_DATABASE:asyncrpg}"
-      MARIADB_USER: "${MARIADB_USER:asyncrpgadmin}"
-      MARIADB_PASSWORD: "${MARIADB_PASSWORD:AsyncRpg#2026}"
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:-asyncrpg#20022026}"
+      MARIADB_DATABASE: "${MARIADB_DATABASE:-asyncrpg}"
+      MARIADB_USER: "${MARIADB_USER:-asyncrpgadmin}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD:-AsyncRpg#2026}"
       TZ: "UTC"
     volumes:
       - mariadb_data:/var/lib/mysql
@@ -21,6 +21,25 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    networks:
+      - async_rpg_net
+
+  rpg-db-crud:
+    build:
+      context: ../RpgDBCrud
+      dockerfile: Dockerfile
+    container_name: async-rpg-api
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"
+    environment:
+      DATABASE_URL: "mysql://${MARIADB_USER:-asyncrpgadmin}:${MARIADB_PASSWORD_ENCODED:-AsyncRpg%232026}@mariadb:3306/${MARIADB_DATABASE:-asyncrpg}"
+      API_HOST: "0.0.0.0"
+      API_PORT: "8080"
+      RUST_LOG: "rpg_db_crud=info,tower_http=info"
     networks:
       - async_rpg_net
 

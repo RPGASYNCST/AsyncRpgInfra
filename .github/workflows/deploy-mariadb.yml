@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "database/**"
+      - "RpgDBCrud/**"
       - ".github/workflows/deploy-mariadb.yml"
   workflow_dispatch:
   workflow_call:
@@ -74,41 +75,37 @@ jobs:
 
       - name: Sincronizar arquivos de configuração e subir MariaDB
         env:
-          DB_ROOT_PASSWORD: ${{ secrets.MARIADB_ROOT_PASSWORD }}
-          DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD }}
-          DB_USER: ${{ secrets.MARIADB_USER || 'async_rpg_user' }}
-          DB_NAME: ${{ secrets.MARIADB_DATABASE || 'async_rpg' }}
+          DB_ROOT_PASSWORD: ${{ secrets.MARIADB_ROOT_PASSWORD || 'asyncrpg#20022026' }}
+          DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD || 'AsyncRpg#2026' }}
+          DB_USER: ${{ secrets.MARIADB_USER || 'asyncrpgadmin' }}
+          DB_NAME: ${{ secrets.MARIADB_DATABASE || 'asyncrpg' }}
           DB_PORT: ${{ secrets.MARIADB_PORT || '3306' }}
         run: |
-          if [ -z "$DB_ROOT_PASSWORD" ] || [ -z "$DB_PASSWORD" ]; then
-            echo "::error::As secrets MARIADB_ROOT_PASSWORD e MARIADB_PASSWORD precisam estar configuradas no GitHub (Settings -> Secrets and variables -> Actions)."
-            exit 1
-          fi
+          DEPLOY_ROOT="$HOME/async-rpg-stack"
+          DEPLOY_DIR="$DEPLOY_ROOT/database"
+          mkdir -p "$DEPLOY_DIR/conf.d" "$DEPLOY_DIR/init" "$DEPLOY_ROOT/RpgDBCrud"
 
-          DEPLOY_DIR="$HOME/async-rpg-mariadb"
-          mkdir -p "$DEPLOY_DIR/conf.d" "$DEPLOY_DIR/init"
-
-          SRC_DIR="database"
+          SRC_ROOT="."
           if [ -d ".async-rpg-infra/database" ]; then
-            SRC_DIR=".async-rpg-infra/database"
+            SRC_ROOT=".async-rpg-infra"
           fi
 
-          cp "$SRC_DIR/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml"
-          cp -r "$SRC_DIR/conf.d/." "$DEPLOY_DIR/conf.d/"
-          cp -r "$SRC_DIR/init/." "$DEPLOY_DIR/init/"
+          cp "$SRC_ROOT/database/docker-compose.yml" "$DEPLOY_DIR/docker-compose.yml"
+          cp -r "$SRC_ROOT/database/conf.d/." "$DEPLOY_DIR/conf.d/"
+          cp -r "$SRC_ROOT/database/init/." "$DEPLOY_DIR/init/"
+          if [ -d "$SRC_ROOT/RpgDBCrud" ]; then
+            cp -r "$SRC_ROOT/RpgDBCrud/." "$DEPLOY_ROOT/RpgDBCrud/"
+          fi
           rm -rf .async-rpg-infra
 
-          cat <<EOF > "$DEPLOY_DIR/.env"
-          MARIADB_PORT=${DB_PORT}
-          MARIADB_DATABASE=${DB_NAME}
-          MARIADB_USER=${DB_USER}
-          MARIADB_PASSWORD=${DB_PASSWORD}
-          MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
-          EOF
+          ENCODED_PASS="${DB_PASSWORD//#/%23}"
+          # Aspas simples nas senhas evitam que o caractere '#' seja lido como comentário pelo Docker Compose
+          printf "MARIADB_PORT='%s'\nMARIADB_DATABASE='%s'\nMARIADB_USER='%s'\nMARIADB_PASSWORD='%s'\nMARIADB_PASSWORD_ENCODED='%s'\nMARIADB_ROOT_PASSWORD='%s'\n" \
+            "$DB_PORT" "$DB_NAME" "$DB_USER" "$DB_PASSWORD" "$ENCODED_PASS" "$DB_ROOT_PASSWORD" > "$DEPLOY_DIR/.env"
           chmod 600 "$DEPLOY_DIR/.env"
 
           cd "$DEPLOY_DIR"
-          docker compose up -d --wait
+          docker compose up -d --build --wait
           docker compose ps
 
       - name: Instalar sqlx-cli (se houver pasta migrations/)
@@ -120,12 +117,14 @@ jobs:
       - name: Executar Migrations do sqlx no MariaDB
         if: ${{ inputs.run_migrations != false && hashFiles('migrations/**') != '' }}
         env:
-          DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD }}
-          DB_USER: ${{ secrets.MARIADB_USER || 'async_rpg_user' }}
-          DB_NAME: ${{ secrets.MARIADB_DATABASE || 'async_rpg' }}
+          DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD || 'AsyncRpg#2026' }}
+          DB_USER: ${{ secrets.MARIADB_USER || 'asyncrpgadmin' }}
+          DB_NAME: ${{ secrets.MARIADB_DATABASE || 'asyncrpg' }}
           DB_PORT: ${{ secrets.MARIADB_PORT || '3306' }}
         run: |
-          export DATABASE_URL="mysql://${DB_USER}:${DB_PASSWORD}@127.0.0.1:${DB_PORT}/${DB_NAME}"
+          # Codifica '#' como '%23' na URL para o sqlx não interpretar como fragmento de URI
+          ENCODED_PASS="${DB_PASSWORD//#/%23}"
+          export DATABASE_URL="mysql://${DB_USER}:${ENCODED_PASS}@127.0.0.1:${DB_PORT}/${DB_NAME}"
           sqlx database create
           sqlx migrate run
           echo "Migrations do sqlx aplicadas com sucesso no banco ${DB_NAME}!"

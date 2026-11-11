@@ -1,5 +1,6 @@
 # Compilação do Cargo
 /target/
+**/target/
 
 # Relatórios gerados localmente ou pela CI
 lcov.info

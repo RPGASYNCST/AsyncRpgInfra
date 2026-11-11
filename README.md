@@ -35,7 +35,8 @@ flowchart TD
     Runner --> Pipeline
     Gate -->|Sucesso| Merge["Ruleset libera o botão de Merge no PR"]
     Gate -->|Falha| Block["Ruleset bloqueia o Merge na main / develop"]
-    Merge -->|Merge na main / deploy| DeployDB["deploy-mariadb.yml<br/>Atualiza MariaDB da Aplicação (Porta 3306, Volume Persistente)<br/>+ Aplica sqlx migrate run"]
+    Merge -->|Merge na main / deploy| DeployDB["deploy-mariadb.yml<br/>Sobe MariaDB (Porta 3306) + API REST RpgDBCrud (Porta 8080)"]
+    Exe["Aplicação Cliente (.exe Iced)"] <-->|HTTP JSON :8080| DeployDB
 ```
 
 ---
@@ -44,6 +45,7 @@ flowchart TD
 
 | Arquivo / Pasta | Função |
 | :--- | :--- |
+| [`RpgDBCrud/`](RpgDBCrud/README.md) | **API REST CRUD** em Rust (`Axum` + `SQLx`) na porta `8080` para que a aplicação `.exe` consulte as tabelas (`SESSAO_RPG`, `SESSAO_ASSETS`, `SESSAO_PLAYERS`, `PLAYERS_SHEETS`) via HTTP/JSON sem acessar o MariaDB diretamente. |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Workflow reutilizável (`workflow_call`) com os jobs de validação, banco MariaDB efêmero para `sqlx` (`porta 3307`), testes, cobertura e `CI Gate`. |
 | [`.github/workflows/deploy-mariadb.yml`](.github/workflows/deploy-mariadb.yml) | Workflow de deploy/atualização do container **MariaDB 11.4 LTS** da aplicação (`porta 3306`, com volume persistente) e execução automática de migrations do `sqlx`. |
 | [`database/docker-compose.yml`](database/docker-compose.yml) | Definição Docker Compose do MariaDB da aplicação com volume persistente (`async_rpg_mariadb_data`), rede isolada e `healthcheck` nativo. |
