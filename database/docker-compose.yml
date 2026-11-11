@@ -3,13 +3,16 @@ services:
     image: mariadb:11.4
     container_name: async-rpg-mariadb
     restart: unless-stopped
+    # O banco escuta só no loopback do servidor: nunca fica exposto na rede.
+    # A API acessa pela rede interna do Docker (async_rpg_net); para administração,
+    # use um túnel SSH até o servidor (ex.: ssh -L 3306:127.0.0.1:3306 usuario@servidor).
     ports:
-      - "${MARIADB_PORT:-3306}:3306"
+      - "127.0.0.1:${MARIADB_PORT:-3306}:3306"
     environment:
-      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:-asyncrpg#20022026}"
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:?defina MARIADB_ROOT_PASSWORD no .env}"
       MARIADB_DATABASE: "${MARIADB_DATABASE:-asyncrpg}"
       MARIADB_USER: "${MARIADB_USER:-asyncrpgadmin}"
-      MARIADB_PASSWORD: "${MARIADB_PASSWORD:-AsyncRpg#2026}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD:?defina MARIADB_PASSWORD no .env}"
       TZ: "UTC"
     volumes:
       - mariadb_data:/var/lib/mysql
@@ -33,10 +36,11 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+    # Porta consumida pelo proxy reverso (Nginx Proxy Manager), que termina o HTTPS.
     ports:
       - "${API_PORT:-8080}:8080"
     environment:
-      DATABASE_URL: "mysql://${MARIADB_USER:-asyncrpgadmin}:${MARIADB_PASSWORD_ENCODED:-AsyncRpg%232026}@mariadb:3306/${MARIADB_DATABASE:-asyncrpg}"
+      DATABASE_URL: "mysql://${MARIADB_USER:-asyncrpgadmin}:${MARIADB_PASSWORD_ENCODED:?defina MARIADB_PASSWORD_ENCODED no .env}@mariadb:3306/${MARIADB_DATABASE:-asyncrpg}"
       API_HOST: "0.0.0.0"
       API_PORT: "8080"
       RUST_LOG: "rpg_db_crud=info,tower_http=info"
