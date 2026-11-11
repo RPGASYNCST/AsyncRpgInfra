@@ -6,10 +6,10 @@ services:
     ports:
       - "${MARIADB_PORT:-3306}:3306"
     environment:
-      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:?Defina MARIADB_ROOT_PASSWORD}"
-      MARIADB_DATABASE: "${MARIADB_DATABASE:-async_rpg}"
-      MARIADB_USER: "${MARIADB_USER:-async_rpg_user}"
-      MARIADB_PASSWORD: "${MARIADB_PASSWORD:?Defina MARIADB_PASSWORD}"
+      MARIADB_ROOT_PASSWORD: "${MARIADB_ROOT_PASSWORD:asyncrpg#20022026}"
+      MARIADB_DATABASE: "${MARIADB_DATABASE:asyncrpg}"
+      MARIADB_USER: "${MARIADB_USER:asyncrpgadmin}"
+      MARIADB_PASSWORD: "${MARIADB_PASSWORD:AsyncRpg#2026}"
       TZ: "UTC"
     volumes:
       - mariadb_data:/var/lib/mysql
