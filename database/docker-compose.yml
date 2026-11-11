@@ -43,6 +43,15 @@ services:
       DATABASE_URL: "mysql://${MARIADB_USER:-asyncrpgadmin}:${MARIADB_PASSWORD_ENCODED:?defina MARIADB_PASSWORD_ENCODED no .env}@mariadb:3306/${MARIADB_DATABASE:-asyncrpg}"
       API_HOST: "0.0.0.0"
       API_PORT: "8080"
+      # IP ou rede (CIDR) do proxy reverso, para a API enxergar o IP real do cliente na
+      # penalidade de login. Vazio = usa o IP da conexão.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
+      # Validade do login, em horas (padrão 7 dias).
+      SESSAO_HORAS: "${SESSAO_HORAS:-168}"
+      # Admin inicial: criado na primeira subida se não existir (a senha de um usuário
+      # existente nunca é alterada por aqui).
+      ADMIN_LOGIN: "${ADMIN_LOGIN:-}"
+      ADMIN_SENHA: "${ADMIN_SENHA:-}"
       RUST_LOG: "rpg_db_crud=info,tower_http=info"
     networks:
       - async_rpg_net

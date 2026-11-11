@@ -1,4 +1,6 @@
+mod auth;
 mod error;
+mod estado;
 mod extract;
 mod listagem;
 mod routes;
@@ -6,12 +8,16 @@ mod validacao;
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::StatusCode;
+use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 use axum::{Json, Router};
+use estado::{AppState, ConfigAuth};
 use serde_json::{json, Value};
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::MySqlPool;
 use std::env;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
@@ -49,9 +55,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Executando migrations das tabelas...");
     sqlx::migrate!("./migrations").run(&pool).await?;
 
+    let auth = ConfigAuth {
+        duracao_sessao: chrono::Duration::hours(
+            env_preenchida("SESSAO_HORAS")
+                .map(|v| v.parse::<i64>())
+                .transpose()
+                .map_err(|_| "SESSAO_HORAS deve ser um número inteiro de horas.")?
+                .unwrap_or(168),
+        ),
+        proxies_confiaveis: auth::ip::ler_proxies(
+            &env::var("TRUSTED_PROXIES").unwrap_or_default(),
+        )?,
+    };
+    if auth.proxies_confiaveis.is_empty() {
+        tracing::warn!(
+            "TRUSTED_PROXIES vazio: o IP usado na penalidade será o da conexão. Atrás do proxy reverso, configure o IP/rede dele para enxergar o IP real do cliente."
+        );
+    }
+
+    if let (Some(login), Some(senha)) =
+        (env_preenchida("ADMIN_LOGIN"), env_preenchida("ADMIN_SENHA"))
+    {
+        auth::garantir_admin_inicial(&pool, &login, &senha)
+            .await
+            .map_err(|e| format!("Falha ao criar o admin inicial: {e:?}"))?;
+    }
+
+    let estado = AppState {
+        pool: pool.clone(),
+        auth: Arc::new(auth),
+    };
+
+    // Limpeza periódica de sessões vencidas e penalidades expiradas.
+    {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            let mut intervalo = tokio::time::interval(Duration::from_secs(3600));
+            loop {
+                intervalo.tick().await;
+                if let Err(err) = auth::limpar_expirados(&pool).await {
+                    tracing::error!("Falha na limpeza periódica: {err}");
+                }
+            }
+        });
+    }
+
     let app = Router::new()
         .route("/health", get(health_check))
-        .nest("/api", routes::api_router())
+        .nest("/auth", auth::rotas::router(estado.clone()))
+        .nest("/admin", auth::admin::router(estado.clone()))
+        .nest(
+            "/api",
+            routes::api_router().route_layer(from_fn_with_state(
+                estado.clone(),
+                auth::middleware::exigir_login,
+            )),
+        )
         .fallback(rota_inexistente)
         .layer(DefaultBodyLimit::max(CORPO_MAX_BYTES))
         .layer(TimeoutLayer::with_status_code(
@@ -59,17 +118,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             REQUISICAO_TIMEOUT,
         ))
         .layer(TraceLayer::new_for_http())
-        .with_state(pool.clone());
+        .with_state(estado);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Servidor RpgDBCrud rodando em http://{addr}");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     pool.close().await;
     tracing::info!("Servidor RpgDBCrud encerrado.");
     Ok(())
+}
+
+/// Variável de ambiente definida e não vazia (o compose repassa as opcionais vazias).
+fn env_preenchida(nome: &str) -> Option<String> {
+    env::var(nome).ok().filter(|v| !v.trim().is_empty())
 }
 
 async fn rota_inexistente() -> error::AppError {

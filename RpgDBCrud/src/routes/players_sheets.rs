@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::estado::AppState;
 use crate::extract::{Caminho, Consulta, Corpo};
 use crate::listagem::{self, Filtro, Pagina, ParametrosLista, Tabela, Valor};
 use crate::validacao::{Validador, FICHA_MAX_BYTES};
@@ -90,7 +91,7 @@ impl UpdatePlayersSheet {
     }
 }
 
-pub fn router() -> Router<MySqlPool> {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_all).post(create))
         .route("/{id}", get(get_by_id).put(update).delete(delete))

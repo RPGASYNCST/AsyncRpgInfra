@@ -138,6 +138,9 @@ Variáveis de ambiente (ou arquivo `.env`, veja [`.env.example`](.env.example)):
 | `API_HOST` | Não | `0.0.0.0` |
 | `API_PORT` | Não | `8080` |
 | `RUST_LOG` | Não | `rpg_db_crud=info,tower_http=info` |
+| `TRUSTED_PROXIES` | Não (sim atrás de proxy) | Vazio. IP/CIDR do proxy reverso (ex.: NPM), separados por vírgula |
+| `SESSAO_HORAS` | Não | `168` (7 dias) |
+| `ADMIN_LOGIN` / `ADMIN_SENHA` | Não | Cria o primeiro admin se ele não existir |
 
 ```bash
 cargo run
@@ -147,6 +150,48 @@ A imagem Docker usa Rust 1.88 (mínimo exigido pelas dependências do `Cargo.loc
 
 ---
 
-## 6. Cliente na Aplicação `.exe` (Iced)
+## 6. Autenticação e Proteção contra Força Bruta
 
-O cliente oficial fica no repositório **AsyncTTRPG96**, módulo `src/api/` (`RpgApiClient`, com modelos tipados das 4 tabelas). Ao adicionar uma tabela ou coluna aqui, atualize também `src/api/models.rs` lá.
+Todas as rotas `/api/*` e `/admin/*` exigem `Authorization: Bearer <token>`. Só `/health`, `/auth/cadastro` e `/auth/login` são públicas.
+
+| Rota | Acesso | Função |
+| :--- | :--- | :--- |
+| `POST /auth/cadastro` | Público | Cria conta `{login, nome, senha}` (cadastro aberto, limitado por IP) |
+| `POST /auth/login` | Público | `{login, senha, dispositivo?}` → `{token, expira_em, dispositivo, usuario}` |
+| `POST /auth/logout` | Logado | Invalida o token |
+| `GET /auth/eu` | Logado | Usuário dono do token |
+| `GET /admin/usuarios` | Admin | Lista usuários (mesmos parâmetros de listagem: `q`, `limit`...) |
+| `GET/PUT /admin/usuarios/{id}` | Admin | Consulta/altera `nome`, `admin`, `ativo`, `senha` (redefinir senha ou desativar encerra as sessões) |
+| `POST /admin/usuarios/{id}/desbloquear` | Admin | Zera a penalidade da conta e dos dispositivos do usuário |
+| `DELETE /admin/penalidades/ip/{ip}` | Admin | Zera a penalidade de login e de cadastro de um IP |
+
+**Regras de conta**: login com 3 a 50 caracteres (minúsculas sem acento, números, `.`, `_`, `-`), único e sem diferenciar maiúsculas; senha com 10 a 128 caracteres e diferente do login.
+
+**Armazenamento**: senha só como hash Argon2id; tokens de sessão e de dispositivo só como SHA-256. Um vazamento do banco não entrega senhas nem tokens utilizáveis.
+
+### 6.1. Penalidade exponencial
+
+Cada login errado dobra a espera: **10 s, 20 s, 40 s, 1 min 20 s, 2 min 40 s...** (na 20ª falha passa de 60 dias). Durante a espera a API responde `429` com `aguarde_segundos` e `Retry-After`, **sem conferir a senha e sem contar a tentativa**. Login errado responde `401` com o tempo de espera aplicado.
+
+Para punir o atacante sem punir o dono da conta, a API usa **dispositivo confiável**:
+
+| Origem do login | Penalidades aplicadas | Zera com |
+| :--- | :--- | :--- |
+| Dispositivo confiável (token `dispositivo` recebido num login correto naquele computador) | Só a do dispositivo | Login correto ou admin |
+| Dispositivo desconhecido | Da **conta** e do **IP**, ao mesmo tempo | Conta: login correto ou admin. IP: admin, ou 24 h após o fim do último bloqueio |
+
+Assim, um atacante (mesmo trocando de IP) acumula penalidade na conta, mas a pessoa no computador de sempre continua entrando. O IP não é zerado por login correto porque, com cadastro aberto, o atacante poderia "limpar" o próprio IP entrando numa conta dele. A resposta é idêntica para login inexistente e senha errada, e o tempo de verificação também (hash fictício), para não revelar quais logins existem.
+
+Cadastro: os 2 primeiros por IP são livres; a partir do 3º, a mesma espera exponencial.
+
+### 6.2. Atrás do proxy reverso
+
+Configure `TRUSTED_PROXIES` com o IP ou a rede do proxy (ex.: `172.18.0.0/16` se o NPM estiver na mesma rede Docker). Sem isso, todos os clientes aparecem com o IP do proxy e a penalidade por IP afetaria todo mundo junto. Com o valor configurado, a API usa `X-Forwarded-For`/`X-Real-IP` apenas quando a conexão vem do proxy, então um cliente não consegue forjar o próprio IP.
+
+No deploy (`deploy-mariadb.yml`), use os secrets opcionais `API_ADMIN_LOGIN`/`API_ADMIN_SENHA` para o admin inicial e a variável de repositório/organização `API_TRUSTED_PROXIES`.
+
+---
+
+## 7. Cliente na Aplicação `.exe` (Iced)
+
+O cliente oficial fica no repositório **AsyncTTRPG96**, módulo `src/api/` (`RpgApiClient`, com login, modelos tipados das 4 tabelas e o armazenamento do dispositivo confiável). Ao adicionar uma tabela ou coluna aqui, atualize também `src/api/models.rs` lá.

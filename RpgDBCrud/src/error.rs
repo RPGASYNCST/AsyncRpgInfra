@@ -1,6 +1,6 @@
 use crate::validacao::ErroCampo;
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
@@ -17,6 +17,20 @@ pub enum AppError {
     Validacao(Vec<ErroCampo>),
     /// Requisição malformada rejeitada antes do handler (JSON, query ou caminho inválidos).
     Entrada(StatusCode, String),
+    /// Falta token de sessão ou ele é inválido/expirado (401).
+    NaoAutenticado,
+    /// Autenticado, mas sem permissão (403).
+    Proibido(String),
+    /// Login ou senha errados (401). `aguarde_segundos` = espera antes da próxima tentativa.
+    LoginRecusado {
+        aguarde_segundos: i64,
+    },
+    /// Ainda dentro da espera da penalidade (429).
+    MuitasTentativas {
+        aguarde_segundos: i64,
+    },
+    /// Falha interna fora do banco (ex.: gerador aleatório); detalhe só no log (500).
+    Interno(String),
     Database(sqlx::Error),
 }
 
@@ -94,6 +108,36 @@ impl IntoResponse for AppError {
                 json!({ "error": "Dados inválidos.", "campos": campos }),
             ),
             Self::Entrada(status, msg) => (status, json!({ "error": msg })),
+            Self::NaoAutenticado => {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::WWW_AUTHENTICATE, "Bearer".to_string())],
+                    Json(json!({ "error": "Faça login para usar a API." })),
+                )
+                    .into_response();
+            }
+            Self::Proibido(msg) => (StatusCode::FORBIDDEN, json!({ "error": msg })),
+            Self::LoginRecusado { aguarde_segundos } => {
+                return resposta_com_espera(
+                    StatusCode::UNAUTHORIZED,
+                    "Usuário ou senha inválidos.",
+                    aguarde_segundos,
+                );
+            }
+            Self::MuitasTentativas { aguarde_segundos } => {
+                return resposta_com_espera(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Muitas tentativas. Aguarde antes de tentar de novo.",
+                    aguarde_segundos,
+                );
+            }
+            Self::Interno(detalhe) => {
+                tracing::error!("Erro interno: {detalhe}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    json!({ "error": "Erro interno." }),
+                )
+            }
             Self::Database(err) => {
                 // O detalhe fica só no log do servidor; o cliente não recebe estrutura interna do banco.
                 tracing::error!("Erro no banco de dados MariaDB: {err}");
@@ -105,5 +149,20 @@ impl IntoResponse for AppError {
         };
 
         (status, Json(body)).into_response()
+    }
+}
+
+/// Resposta com `aguarde_segundos` no corpo e `Retry-After` no cabeçalho (quando > 0).
+fn resposta_com_espera(status: StatusCode, mensagem: &str, aguarde_segundos: i64) -> Response {
+    let corpo = Json(json!({ "error": mensagem, "aguarde_segundos": aguarde_segundos }));
+    if aguarde_segundos > 0 {
+        (
+            status,
+            [(header::RETRY_AFTER, aguarde_segundos.to_string())],
+            corpo,
+        )
+            .into_response()
+    } else {
+        (status, corpo).into_response()
     }
 }
