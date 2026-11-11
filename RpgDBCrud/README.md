@@ -41,7 +41,7 @@ Todas as tabelas seguem exatamente o mesmo padrão de 5 endpoints:
 
 ## 3. Como Adicionar um Novo CRUD de Tabela
 
-1. Adicione o `CREATE TABLE` em `migrations/` (ou uma nova migration `0002_nova_tabela.sql`).
+1. Crie uma **nova** migration em `migrations/` (ex.: `0002_nova_tabela.sql`). Nunca edite uma migration já aplicada: o checksum muda e a API deixa de subir.
 2. Duplique qualquer arquivo de `src/routes/` (por exemplo, copie `sessao_rpg.rs` para `src/routes/nova_tabela.rs`) e troque os campos da struct e a query SQL.
 3. Abra [`src/routes/mod.rs`](src/routes/mod.rs) e adicione **1 linha**:
    ```rust
@@ -56,214 +56,47 @@ Todas as tabelas seguem exatamente o mesmo padrão de 5 endpoints:
 
 ---
 
-## 4. Como Chamar a API no Código da sua Aplicação `.exe` (Iced)
+## 4. Comportamento da API
 
-No `Cargo.toml` da sua aplicação `.exe` (Iced), adicione:
-```toml
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
+A API é só um CRUD por tabela para desacoplar o cliente do banco: **não tem regra de negócio**. As únicas validações são as do próprio MariaDB (tipos, tamanhos e chaves estrangeiras).
+
+| Situação | Status | Corpo |
+| :--- | :---: | :--- |
+| Sucesso na leitura/alteração | `200` | Registro ou lista em JSON |
+| Registro criado | `201` | Registro criado |
+| Registro apagado | `204` | Vazio |
+| `id` inexistente | `404` | `{"error": "..."}` |
+| JSON com tipo/campo errado | `422` | Texto gerado pelo Axum |
+| Texto maior que a coluna ou dado em formato inválido | `400` | `{"error": "..."}` |
+| Chave estrangeira inexistente (ex.: `sessao_id` que não existe) | `409` | `{"error": "..."}` |
+| Falha inesperada no banco | `500` | `{"error": "Erro interno ao acessar o banco de dados."}` (detalhe só no log) |
+
+- **Atualização parcial (`PUT`)**: campos ausentes ou `null` mantêm o valor atual. Por isso, hoje não é possível limpar uma coluna opcional (gravar `NULL`) pela API.
+- **Exclusão em cascata**: apagar uma `SESSAO_RPG` apaga players, assets e fichas dela; apagar um `SESSAO_PLAYERS` apaga as fichas dele (chaves estrangeiras `ON DELETE CASCADE`).
+- **`GET /health`**: responde `200` quando a API e o MariaDB estão acessíveis e `503` quando o banco não responde.
+- **Schema**: as tabelas são criadas **somente** pelas migrations desta pasta, aplicadas automaticamente quando a API sobe. Nenhum outro repositório deve rodar `sqlx migrate run` neste banco, porque as migrations compartilham a tabela `_sqlx_migrations` e a API deixaria de subir.
+
+---
+
+## 5. Configuração e Execução Local
+
+Variáveis de ambiente (ou arquivo `.env`, veja [`.env.example`](.env.example)):
+
+| Variável | Obrigatória | Padrão |
+| :--- | :---: | :--- |
+| `DATABASE_URL` | **Sim** | Sem padrão; a API não sobe sem ela. Caracteres especiais da senha devem ser codificados na URL (`#` vira `%23`, `@` vira `%40`). |
+| `API_HOST` | Não | `0.0.0.0` |
+| `API_PORT` | Não | `8080` |
+| `RUST_LOG` | Não | `rpg_db_crud=info,tower_http=info` |
+
+```bash
+cargo run
 ```
 
-E crie um arquivo `src/api.rs` na sua aplicação `.exe` copiando o cliente pronto abaixo:
+A imagem Docker usa Rust 1.88 (mínimo exigido pelas dependências do `Cargo.lock`) e compila com `--locked`.
 
-```rust
-use chrono::{DateTime, Utc};
-use reqwest::Client;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Value;
+---
 
-#[derive(Debug, Clone)]
-pub struct RpgApiClient {
-    client: Client,
-    base_url: String,
-}
+## 6. Cliente na Aplicação `.exe` (Iced)
 
-// ==================== MODELS ====================
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessaoRpg {
-    pub id: u64,
-    pub name: String,
-    pub description: Option<String>,
-    pub system: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateSessaoRpg {
-    pub name: String,
-    pub description: Option<String>,
-    pub system: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessaoAsset {
-    pub id: u64,
-    pub sessao_id: u64,
-    pub glob: String,
-    pub description: Option<String>,
-    pub resume: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateSessaoAsset {
-    pub sessao_id: u64,
-    pub glob: String,
-    pub description: Option<String>,
-    pub resume: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessaoPlayer {
-    pub id: u64,
-    pub sessao_id: u64,
-    pub name: String,
-    pub player_name: String,
-    pub resume: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateSessaoPlayer {
-    pub sessao_id: u64,
-    pub name: String,
-    pub player_name: String,
-    pub resume: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayersSheet {
-    pub id: u64,
-    pub sessao_id: u64,
-    pub players_id: u64,
-    pub system: String,
-    pub sheet: Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreatePlayersSheet {
-    pub sessao_id: u64,
-    pub players_id: u64,
-    pub system: String,
-    pub sheet: Value,
-}
-
-// ==================== CLIENTE HTTP GENÉRICO ====================
-
-impl RpgApiClient {
-    pub fn new(base_url: impl Into<String>) -> Self {
-        Self {
-            client: Client::new(),
-            base_url: base_url.into().trim_end_matches('/').to_string(),
-        }
-    }
-
-    /// GET /api/{resource}
-    pub async fn list<T: DeserializeOwned>(&self, resource: &str) -> Result<Vec<T>, String> {
-        let url = format!("{}/api/{resource}", self.base_url);
-        self.client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?
-            .json::<Vec<T>>()
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    /// GET /api/{resource}/{id}
-    pub async fn get_by_id<T: DeserializeOwned>(&self, resource: &str, id: u64) -> Result<T, String> {
-        let url = format!("{}/api/{resource}/{id}", self.base_url);
-        self.client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?
-            .json::<T>()
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    /// POST /api/{resource}
-    pub async fn create<B: Serialize, T: DeserializeOwned>(
-        &self,
-        resource: &str,
-        body: &B,
-    ) -> Result<T, String> {
-        let url = format!("{}/api/{resource}", self.base_url);
-        self.client
-            .post(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?
-            .json::<T>()
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    /// PUT /api/{resource}/{id}
-    pub async fn update<B: Serialize, T: DeserializeOwned>(
-        &self,
-        resource: &str,
-        id: u64,
-        body: &B,
-    ) -> Result<T, String> {
-        let url = format!("{}/api/{resource}/{id}", self.base_url);
-        self.client
-            .put(&url)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?
-            .json::<T>()
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    /// DELETE /api/{resource}/{id}
-    pub async fn delete(&self, resource: &str, id: u64) -> Result<(), String> {
-        let url = format!("{}/api/{resource}/{id}", self.base_url);
-        self.client
-            .delete(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    }
-}
-```
-
-### Exemplo de uso dentro de um `Task::perform` no Iced:
-```rust
-let api = RpgApiClient::new("http://SEU_SERVIDOR:8080");
-
-// Listar todas as sessões:
-let sessoes: Vec<SessaoRpg> = api.list("sessao_rpg").await?;
-
-// Criar uma nova sessão:
-let nova: SessaoRpg = api.create("sessao_rpg", &CreateSessaoRpg {
-    name: "Campanha de Ordem Paranormal".into(),
-    description: Some("Mesa de sexta-feira".into()),
-    system: "Ordem Paranormal".into(),
-}).await?;
-```
-
+O cliente oficial fica no repositório **AsyncTTRPG96**, módulo `src/api/` (`RpgApiClient`, com modelos tipados das 4 tabelas). Ao adicionar uma tabela ou coluna aqui, atualize também `src/api/models.rs` lá.

@@ -19,11 +19,6 @@ on:
         required: false
         type: string
         default: "main"
-      run_migrations:
-        description: "Executar sqlx migrate run se houver pasta migrations/"
-        required: false
-        type: boolean
-        default: true
     secrets:
       INFRA_TOKEN:
         description: "Token de leitura caso o AsyncRpgInfra seja privado"
@@ -45,7 +40,7 @@ concurrency:
 
 jobs:
   deploy-db:
-    name: Subir/Atualizar Container MariaDB & Migrations
+    name: Subir/Atualizar MariaDB & API RpgDBCrud
     runs-on: [self-hosted, linux]
     timeout-minutes: 15
     steps:
@@ -73,7 +68,9 @@ jobs:
           fi
           docker compose version
 
-      - name: Sincronizar arquivos de configuração e subir MariaDB
+      # As tabelas são criadas pelas migrations da API (RpgDBCrud/migrations) quando o
+      # container dela sobe; por isso este workflow não roda sqlx migrate run.
+      - name: Sincronizar arquivos de configuração e subir MariaDB + API
         env:
           DB_ROOT_PASSWORD: ${{ secrets.MARIADB_ROOT_PASSWORD || 'asyncrpg#20022026' }}
           DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD || 'AsyncRpg#2026' }}
@@ -107,25 +104,3 @@ jobs:
           cd "$DEPLOY_DIR"
           docker compose up -d --build --wait
           docker compose ps
-
-      - name: Instalar sqlx-cli (se houver pasta migrations/)
-        if: ${{ inputs.run_migrations != false && hashFiles('migrations/**') != '' }}
-        uses: taiki-e/install-action@v2
-        with:
-          tool: sqlx-cli
-
-      - name: Executar Migrations do sqlx no MariaDB
-        if: ${{ inputs.run_migrations != false && hashFiles('migrations/**') != '' }}
-        env:
-          DB_PASSWORD: ${{ secrets.MARIADB_PASSWORD || 'AsyncRpg#2026' }}
-          DB_USER: ${{ secrets.MARIADB_USER || 'asyncrpgadmin' }}
-          DB_NAME: ${{ secrets.MARIADB_DATABASE || 'asyncrpg' }}
-          DB_PORT: ${{ secrets.MARIADB_PORT || '3306' }}
-        run: |
-          # Codifica '#' como '%23' na URL para o sqlx não interpretar como fragmento de URI
-          ENCODED_PASS="${DB_PASSWORD//#/%23}"
-          export DATABASE_URL="mysql://${DB_USER}:${ENCODED_PASS}@127.0.0.1:${DB_PORT}/${DB_NAME}"
-          sqlx database create
-          sqlx migrate run
-          echo "Migrations do sqlx aplicadas com sucesso no banco ${DB_NAME}!"
-

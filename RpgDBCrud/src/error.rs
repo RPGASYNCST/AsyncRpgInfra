@@ -2,21 +2,49 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::json;
+use sqlx::error::ErrorKind;
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum AppError {
     NotFound(String),
     BadRequest(String),
+    Conflict(String),
     Database(sqlx::Error),
 }
 
 impl From<sqlx::Error> for AppError {
     fn from(err: sqlx::Error) -> Self {
-        match err {
-            sqlx::Error::RowNotFound => Self::NotFound("Registro não encontrado".to_string()),
-            other => Self::Database(other),
+        if let sqlx::Error::RowNotFound = err {
+            return Self::NotFound("Registro não encontrado".to_string());
         }
+
+        // Erros de integridade gerados pelo próprio MariaDB viram 4xx com mensagem genérica.
+        // Nenhuma regra de negócio é aplicada aqui: só traduzimos o erro do banco para HTTP.
+        if let Some(db_err) = err.as_database_error() {
+            match db_err.kind() {
+                ErrorKind::ForeignKeyViolation => {
+                    return Self::Conflict(
+                        "Registro relacionado inexistente ou ainda referenciado por outro registro."
+                            .to_string(),
+                    );
+                }
+                ErrorKind::UniqueViolation => {
+                    return Self::Conflict("Registro duplicado.".to_string());
+                }
+                ErrorKind::NotNullViolation | ErrorKind::CheckViolation => {
+                    return Self::BadRequest("Dados inválidos para a tabela.".to_string());
+                }
+                _ => {}
+            }
+            // SQLSTATE classe 22 = dado inválido (ex.: texto maior que a coluna, JSON inválido).
+            if db_err.code().is_some_and(|code| code.starts_with("22")) {
+                return Self::BadRequest(
+                    "Dados inválidos para a tabela (tamanho ou formato).".to_string(),
+                );
+            }
+        }
+
+        Self::Database(err)
     }
 }
 
@@ -25,11 +53,13 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             Self::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            Self::Conflict(msg) => (StatusCode::CONFLICT, msg),
             Self::Database(err) => {
+                // O detalhe fica só no log do servidor; o cliente não recebe estrutura interna do banco.
                 tracing::error!("Erro no banco de dados MariaDB: {err}");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Erro no banco de dados: {err}"),
+                    "Erro interno ao acessar o banco de dados.".to_string(),
                 )
             }
         };
@@ -37,4 +67,3 @@ impl IntoResponse for AppError {
         (status, Json(json!({ "error": message }))).into_response()
     }
 }
-
