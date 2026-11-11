@@ -1,4 +1,4 @@
-edition = "2021"
+# Sem "edition": o cargo fmt usa a edicao declarada no Cargo.toml de cada aplicacao.
 max_width = 100
 tab_spaces = 4
 newline_style = "Auto"

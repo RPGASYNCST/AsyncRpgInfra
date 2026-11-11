@@ -52,7 +52,7 @@ flowchart TD
 | [`database/conf.d/custom.cnf`](database/conf.d/custom.cnf) | Configuração do MariaDB otimizada para Rust/`sqlx` (`utf8mb4`, `utf8mb4_unicode_ci`, `UTC`, InnoDB tuning). |
 | [`database/init/01-init.sql`](database/init/01-init.sql) | Script SQL executado automaticamente na criação inicial do volume do MariaDB. |
 | [`database/.env.example`](database/.env.example) | Modelo de variáveis de ambiente e `DATABASE_URL` para conexão com o MariaDB. |
-| [`rustfmt.toml`](rustfmt.toml) | Regras padronizadas de formatação (`edition = "2021"`, `max_width = 100`, reordenação de imports). |
+| [`rustfmt.toml`](rustfmt.toml) | Regras padronizadas de formatação (edição herdada do `Cargo.toml` de cada aplicação, `max_width = 100`, reordenação de imports). |
 | [`clippy.toml`](clippy.toml) | Limites de complexidade cognitiva e permissão de `unwrap`/`expect`/`dbg!` apenas em testes. |
 | [`deny.toml`](deny.toml) | Regras do `cargo-deny`: auditoria de advisories, bloqueio de wildcards e licenças permitidas pela árvore do **Iced / wgpu / sqlx**. |
 | [`.config/nextest.toml`](.config/nextest.toml) | Perfil `ci` do `cargo-nextest` com *retries*, timeouts e exportação de relatório JUnit (`junit.xml`). |
