@@ -117,13 +117,14 @@ pub async fn limpar(pool: &MySqlPool, chave: &str) -> Result<u64, sqlx::Error> {
         .rows_affected())
 }
 
-/// Remove a penalidade da conta e de todos os dispositivos do usuário.
+/// Remove a penalidade da conta, de todos os dispositivos do usuário e de verificação.
 pub async fn limpar_usuario(
     pool: &MySqlPool,
     usuario_id: u64,
     login: &str,
 ) -> Result<u64, sqlx::Error> {
     let conta = limpar(pool, &chave_conta(login)).await?;
+    let verif = limpar(pool, &format!("verif_conta:{login}")).await?;
     let dispositivos = sqlx::query(
         "DELETE FROM PENALIDADES WHERE chave IN \
          (SELECT CONCAT('disp:', id) FROM DISPOSITIVOS WHERE usuario_id = ?)",
@@ -132,7 +133,7 @@ pub async fn limpar_usuario(
     .execute(pool)
     .await?
     .rows_affected();
-    Ok(conta + dispositivos)
+    Ok(conta + verif + dispositivos)
 }
 
 /// Apaga penalidades que não têm mais efeito: IP/cadastro esquecidos e contas inexistentes
@@ -149,8 +150,8 @@ pub async fn limpar_expiradas(pool: &MySqlPool, agora: DateTime<Utc>) -> Result<
     .await?
     .rows_affected();
     let contas_inexistentes = sqlx::query(
-        "DELETE FROM PENALIDADES WHERE chave LIKE 'conta:%' \
-         AND SUBSTRING(chave, 7) NOT IN (SELECT login FROM USUARIOS) \
+        "DELETE FROM PENALIDADES WHERE (chave LIKE 'conta:%' OR chave LIKE 'verif_conta:%') \
+         AND SUBSTRING_INDEX(chave, ':', -1) NOT IN (SELECT login FROM USUARIOS) \
          AND ultima_falha_em < ? AND (bloqueado_ate IS NULL OR bloqueado_ate < ?)",
     )
     .bind(limite)

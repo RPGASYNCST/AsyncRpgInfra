@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 
 pub const LOGIN_MIN: usize = 3;
 pub const LOGIN_MAX: usize = 50;
-pub const SENHA_MIN: usize = 10;
+pub const SENHA_MIN: usize = 6;
 /// Teto da senha: Argon2 com entradas enormes vira vetor de negação de serviço.
 pub const SENHA_MAX: usize = 128;
 /// Cadastros permitidos por IP antes de a espera exponencial começar.
@@ -30,6 +30,8 @@ pub struct CadastroRequest {
     pub login: String,
     pub nome: String,
     pub senha: String,
+    pub sessao_id: Option<u64>,
+    pub codigo_convite: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,6 +58,11 @@ pub struct LoginResponse {
     /// Novo token de dispositivo confiável; `null` quando o enviado continua válido.
     pub dispositivo: Option<String>,
     pub usuario: UsuarioPublico,
+    pub sessao_id: u64,
+    pub sessao_nome: String,
+    pub sessao_sistema: String,
+    pub players_id: u64,
+    pub tem_ficha: bool,
 }
 
 pub fn router(estado: AppState) -> Router<AppState> {
@@ -142,6 +149,46 @@ async fn cadastro(
             })
         }
     };
+
+    let mut sessao_resolvida = req.sessao_id;
+    if sessao_resolvida.is_none() {
+        if let Some(convite) = req
+            .codigo_convite
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if let Ok(id_num) = convite.parse::<u64>() {
+                let existe: Option<(u64,)> =
+                    sqlx::query_as("SELECT id FROM SESSAO_RPG WHERE id = ? LIMIT 1")
+                        .bind(id_num)
+                        .fetch_optional(&estado.pool)
+                        .await?;
+                sessao_resolvida = existe.map(|(sid,)| sid);
+            }
+            if sessao_resolvida.is_none() {
+                let por_nome: Option<(u64,)> = sqlx::query_as(
+                    "SELECT id FROM SESSAO_RPG WHERE name = ? ORDER BY id DESC LIMIT 1",
+                )
+                .bind(convite)
+                .fetch_optional(&estado.pool)
+                .await?;
+                sessao_resolvida = por_nome.map(|(sid,)| sid);
+            }
+        }
+    }
+
+    if let Some(sid) = sessao_resolvida {
+        let _ = sqlx::query(
+            "INSERT INTO SESSAO_PLAYERS (sessao_id, name, player_name, resume) VALUES (?, ?, ?, ?)",
+        )
+        .bind(sid)
+        .bind(&req.nome)
+        .bind(&login)
+        .bind("Jogador cadastrado diretamente via código de convite")
+        .execute(&estado.pool)
+        .await;
+    }
 
     penalidade::registrar(&estado.pool, &chave_cadastro, CADASTROS_LIVRES_POR_IP).await?;
     tracing::info!("Novo usuário cadastrado: '{login}' (id={id}) a partir de {ip}");
@@ -267,7 +314,66 @@ async fn login(
         .execute(pool)
         .await?;
 
-    tracing::info!("Login de '{login}' a partir de {ip}");
+    let vinculo_existente: Option<(u64, u64)> = sqlx::query_as(
+        "SELECT id, sessao_id FROM SESSAO_PLAYERS WHERE player_name = ? ORDER BY id DESC LIMIT 1",
+    )
+    .bind(&login)
+    .fetch_optional(pool)
+    .await?;
+
+    let (players_id, sessao_id) = match vinculo_existente {
+        Some(par) => par,
+        None => {
+            let sessao_padrao: Option<(u64,)> =
+                sqlx::query_as("SELECT id FROM SESSAO_RPG ORDER BY id DESC LIMIT 1")
+                    .fetch_optional(pool)
+                    .await?;
+            let sid = match sessao_padrao {
+                Some((id_s,)) => id_s,
+                None => sqlx::query(
+                    "INSERT INTO SESSAO_RPG (name, description, `system`) VALUES (?, ?, ?)",
+                )
+                .bind("Crônicas de Kharos")
+                .bind("Campanha principal")
+                .bind("D&D")
+                .execute(pool)
+                .await?
+                .last_insert_id(),
+            };
+            let pid = sqlx::query(
+                "INSERT INTO SESSAO_PLAYERS (sessao_id, name, player_name, resume) VALUES (?, ?, ?, ?)",
+            )
+            .bind(sid)
+            .bind(&nome)
+            .bind(&login)
+            .bind("Operador vinculado no primeiro acesso")
+            .execute(pool)
+            .await?
+            .last_insert_id();
+            (pid, sid)
+        }
+    };
+
+    let (sessao_nome, sessao_sistema): (String, String) =
+        sqlx::query_as("SELECT name, `system` FROM SESSAO_RPG WHERE id = ?")
+            .bind(sessao_id)
+            .fetch_optional(pool)
+            .await?
+            .unwrap_or_else(|| ("Crônicas de Kharos".to_string(), "D&D".to_string()));
+
+    let ficha_existente: Option<(u64,)> = sqlx::query_as(
+        "SELECT id FROM PLAYERS_SHEETS WHERE sessao_id = ? AND players_id = ? LIMIT 1",
+    )
+    .bind(sessao_id)
+    .bind(players_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let tem_ficha = ficha_existente.is_some();
+
+    tracing::info!(
+        "Login de '{login}' a partir de {ip} (sessao_id={sessao_id}, tem_ficha={tem_ficha})"
+    );
     Ok(Json(LoginResponse {
         token: token_sessao,
         expira_em,
@@ -278,6 +384,11 @@ async fn login(
             nome,
             admin,
         },
+        sessao_id,
+        sessao_nome,
+        sessao_sistema,
+        players_id,
+        tem_ficha,
     }))
 }
 

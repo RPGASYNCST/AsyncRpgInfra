@@ -62,7 +62,7 @@ pub async fn garantir_admin_inicial(
     Ok(())
 }
 
-/// Limpeza periódica: sessões vencidas e penalidades que já expiraram.
+/// Limpeza periódica: sessões vencidas, penalidades expiradas e códigos de verificação vencidos.
 pub async fn limpar_expirados(pool: &MySqlPool) -> Result<(), sqlx::Error> {
     let agora = chrono::Utc::now();
     let sessoes = sqlx::query("DELETE FROM SESSOES_AUTH WHERE expira_em < ?")
@@ -71,9 +71,16 @@ pub async fn limpar_expirados(pool: &MySqlPool) -> Result<(), sqlx::Error> {
         .await?
         .rows_affected();
     let penalidades = penalidade::limpar_expiradas(pool, agora).await?;
-    if sessoes > 0 || penalidades > 0 {
+    let verificacoes =
+        sqlx::query("DELETE FROM VERIFICACOES_CADASTRO WHERE confirmado = FALSE AND expira_em < ?")
+            .bind(agora)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+            .unwrap_or(0);
+    if sessoes > 0 || penalidades > 0 || verificacoes > 0 {
         tracing::info!(
-            "Limpeza: {sessoes} sessão(ões) vencida(s) e {penalidades} penalidade(s) expirada(s) removidas."
+            "Limpeza: {sessoes} sessão(ões) vencida(s), {penalidades} penalidade(s) expirada(s) e {verificacoes} verificação(ões) vencida(s) removidas."
         );
     }
     Ok(())
