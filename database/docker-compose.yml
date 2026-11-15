@@ -56,6 +56,27 @@ services:
     networks:
       - async_rpg_net
 
+  rpg-email-verifier:
+    build:
+      context: ../RpgEmailVerifier
+      dockerfile: Dockerfile
+    container_name: async-rpg-verifier
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    ports:
+      - "${VERIFIER_PORT:-8081}:8081"
+    environment:
+      DATABASE_URL: "mysql://${MARIADB_USER:-asyncrpgadmin}:${MARIADB_PASSWORD_ENCODED:?defina MARIADB_PASSWORD_ENCODED no .env}@mariadb:3306/${MARIADB_DATABASE:-asyncrpg}"
+      VERIFIER_HOST: "0.0.0.0"
+      VERIFIER_PORT: "8081"
+      PUBLIC_VERIFY_BASE_URL: "${PUBLIC_VERIFY_BASE_URL:-http://127.0.0.1:8081}"
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
+      RUST_LOG: "rpg_email_verifier=info,tower_http=info"
+    networks:
+      - async_rpg_net
+
 volumes:
   mariadb_data:
     name: async_rpg_mariadb_data

@@ -12,10 +12,14 @@ RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home appuser
 
 COPY --from=builder /app/target/release/rpg-db-crud /usr/local/bin/rpg-db-crud
 
+USER appuser
 ENV API_HOST=0.0.0.0
 ENV API_PORT=8080
 EXPOSE 8080
