@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebNavigator - rpgasyncst.local</title>
+  <style>
+    @font-face {
+      font-family: 'Silkscreen';
+      src: url('/verify/assets/fonts/Silkscreen-Bold.ttf') format('truetype'),
+           url('./fonts/Silkscreen-Bold.ttf') format('truetype');
+      font-weight: bold;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Silkscreen';
+      src: url('/verify/assets/fonts/Silkscreen-Regular.ttf') format('truetype'),
+           url('./fonts/Silkscreen-Regular.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'VT323';
+      src: url('/verify/assets/fonts/VT323-Regular.ttf') format('truetype'),
+           url('./fonts/VT323-Regular.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    :root {
+      --next-black: #000000;
+      --next-dark-graphite: #2e2e2e;
+      --next-mid-gray: #7a7a7a;
+      --next-window-gray: #bcbcbc;
+      --next-button-gray: #cccccc;
+      --next-light-gray: #dcdcdc;
+      --next-white: #ffffff;
+      --status-ok: #000000;
+      --status-err: #8b1111;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-font-smoothing: none;
+      font-smooth: never;
+    }
+
+    body {
+      background-color: #2b2b2b;
+      font-family: 'VT323', 'Courier New', monospace;
+      color: var(--next-black);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+    }
+
+    /* Moldura principal da janela WebNavigator NeXTSTEP */
+    .next-window {
+      width: 100%;
+      max-width: 780px;
+      background-color: var(--next-window-gray);
+      border: 2px solid var(--next-black);
+      box-shadow: 5px 5px 0px rgba(0, 0, 0, 0.65);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Barra de Título NeXTSTEP */
+    .title-bar {
+      display: flex;
+      align-items: stretch;
+      height: 26px;
+      background-color: var(--next-black);
+      border-bottom: 2px solid var(--next-black);
+      gap: 2px;
+      padding: 1px;
+    }
+
+    .title-btn {
+      width: 26px;
+      background-color: var(--next-window-gray);
+      border-top: 2px solid var(--next-white);
+      border-left: 2px solid var(--next-white);
+      border-right: 2px solid var(--next-dark-graphite);
+      border-bottom: 2px solid var(--next-dark-graphite);
+      color: var(--next-black);
+      font-family: 'VT323', monospace;
+      font-size: 17px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .title-btn:active {
+      border-top: 2px solid var(--next-dark-graphite);
+      border-left: 2px solid var(--next-dark-graphite);
+      border-right: 2px solid var(--next-white);
+      border-bottom: 2px solid var(--next-white);
+      background-color: var(--next-mid-gray);
+    }
+
+    .title-text {
+      flex: 1;
+      background-color: var(--next-black);
+      color: var(--next-white);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      letter-spacing: 0.8px;
+    }
+
+    /* Barra de Ferramentas do Navegador */
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 8px 3px 4px;
+      background-color: var(--next-window-gray);
+      border-bottom: 1px solid var(--next-mid-gray);
+    }
+
+    .nav-buttons {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .nav-btn {
+      width: 92px;
+      height: 42px;
+      background-color: var(--next-button-gray);
+      border-top: 2px solid var(--next-white);
+      border-left: 2px solid var(--next-white);
+      border-right: 2px solid var(--next-dark-graphite);
+      border-bottom: 2px solid var(--next-dark-graphite);
+      outline: 1px solid var(--next-black);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-family: 'VT323', monospace;
+      font-size: 18px;
+      color: var(--next-black);
+      line-height: 1.0;
+    }
+
+    .nav-btn:hover {
+      background-color: var(--next-light-gray);
+    }
+
+    .nav-btn:active {
+      border-top: 2px solid var(--next-dark-graphite);
+      border-left: 2px solid var(--next-dark-graphite);
+      border-right: 2px solid var(--next-white);
+      border-bottom: 2px solid var(--next-white);
+      background-color: #9e9e9e;
+    }
+
+    .nav-btn .nav-icon {
+      font-size: 16px;
+      margin-bottom: 1px;
+    }
+
+    .next-cube-badge {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 4px;
+    }
+
+    /* Barra de Endereço (URL) */
+    .address-bar-row {
+      padding: 3px 4px;
+      background-color: var(--next-window-gray);
+      border-bottom: 2px solid var(--next-black);
+    }
+
+    .sunken-field {
+      background-color: var(--next-white);
+      border-top: 2px solid var(--next-dark-graphite);
+      border-left: 2px solid var(--next-dark-graphite);
+      border-right: 2px solid var(--next-white);
+      border-bottom: 2px solid var(--next-white);
+      outline: 1px solid var(--next-black);
+      padding: 2px 8px;
+      font-family: 'VT323', monospace;
+      font-size: 21px;
+      color: var(--next-black);
+      width: 100%;
+      user-select: text;
+    }
+
+    /* Área principal com barra de rolagem lateral estilo NeXTSTEP */
+    .viewport-wrapper {
+      display: flex;
+      align-items: stretch;
+      background-color: var(--next-window-gray);
+    }
+
+    .page-content {
+      flex: 1;
+      padding: 10px 18px 8px 18px;
+    }
+
+    .retro-scrollbar {
+      width: 20px;
+      background-color: #9a9a9a;
+      border-left: 2px solid var(--next-black);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .scroll-arrow {
+      height: 20px;
+      background-color: var(--next-button-gray);
+      border-top: 2px solid var(--next-white);
+      border-left: 2px solid var(--next-white);
+      border-right: 2px solid var(--next-dark-graphite);
+      border-bottom: 2px solid var(--next-dark-graphite);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+
+    .scroll-thumb {
+      flex: 1;
+      margin: 2px 0;
+      background-color: var(--next-window-gray);
+      border-top: 2px solid var(--next-white);
+      border-left: 2px solid var(--next-white);
+      border-right: 2px solid var(--next-dark-graphite);
+      border-bottom: 2px solid var(--next-dark-graphite);
+    }
+
+    /* Cabeçalho da Página (Logo + Título de Autorização) */
+    .header-banner {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+
+    .emblem-img {
+      width: 84px;
+      height: 84px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      flex-shrink: 0;
+    }
+
+    .header-texts h1 {
+      font-family: 'VT323', monospace;
+      font-size: 32px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      color: var(--next-black);
+      line-height: 1.0;
+      margin-bottom: 4px;
+    }
+
+    .header-texts h1.error-title {
+      color: var(--status-err);
+    }
+
+    .header-texts p {
+      font-size: 20px;
+      line-height: 1.12;
+      color: var(--next-black);
+    }
+
+    /* GroupBox Chanfrado (1. Detalhes da Sincronização) */
+    .group-box {
+      position: relative;
+      border: 2px groove var(--next-white);
+      padding: 14px 16px 10px 16px;
+      margin-top: 8px;
+      margin-bottom: 8px;
+      background-color: var(--next-window-gray);
+    }
+
+    .group-box-title {
+      position: absolute;
+      top: -12px;
+      left: 12px;
+      background-color: var(--next-window-gray);
+      padding: 0 6px;
+      font-size: 20px;
+      color: var(--next-black);
+    }
+
+    .sync-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .sync-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sync-label {
+      width: 185px;
+      font-size: 20px;
+      color: var(--next-black);
+      flex-shrink: 0;
+    }
+
+    .sync-value {
+      flex: 1;
+      background-color: var(--next-white);
+      border-top: 2px solid var(--next-dark-graphite);
+      border-left: 2px solid var(--next-dark-graphite);
+      border-right: 2px solid var(--next-white);
+      border-bottom: 2px solid var(--next-white);
+      outline: 1px solid var(--next-black);
+      padding: 1px 8px;
+      font-family: 'VT323', monospace;
+      font-size: 20px;
+      color: var(--next-black);
+      min-height: 26px;
+      display: flex;
+      align-items: center;
+      user-select: text;
+    }
+
+    .sync-input {
+      flex: 1;
+      background-color: var(--next-white);
+      border-top: 2px solid var(--next-dark-graphite);
+      border-left: 2px solid var(--next-dark-graphite);
+      border-right: 2px solid var(--next-white);
+      border-bottom: 2px solid var(--next-white);
+      outline: 1px solid var(--next-black);
+      padding: 1px 8px;
+      font-family: 'VT323', monospace;
+      font-size: 20px;
+      color: var(--next-black);
+      min-height: 26px;
+    }
+
+    /* Texto de rodapé e barra de ações */
+    .footer-notice {
+      font-size: 18px;
+      line-height: 1.1;
+      margin-bottom: 8px;
+      color: var(--next-black);
+    }
+
+    .actions-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+
+    .left-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .next-btn {
+      background-color: var(--next-button-gray);
+      border-top: 2px solid var(--next-white);
+      border-left: 2px solid var(--next-white);
+      border-right: 2px solid var(--next-dark-graphite);
+      border-bottom: 2px solid var(--next-dark-graphite);
+      outline: 1px solid var(--next-black);
+      padding: 3px 10px;
+      font-family: 'VT323', monospace;
+      font-size: 19px;
+      color: var(--next-black);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .next-btn:hover {
+      background-color: var(--next-light-gray);
+    }
+
+    .next-btn:active {
+      border-top: 2px solid var(--next-dark-graphite);
+      border-left: 2px solid var(--next-dark-graphite);
+      border-right: 2px solid var(--next-white);
+      border-bottom: 2px solid var(--next-white);
+      background-color: #9e9e9e;
+    }
+
+    /* Botão primário Default do NeXTSTEP (borda externa preta dupla + ícone Return ↵) */
+    .next-btn-primary {
+      outline: 2px solid var(--next-black);
+      padding: 5px 16px;
+      font-size: 20px;
+      font-weight: bold;
+      box-shadow: 2px 2px 0px var(--next-dark-graphite);
+    }
+
+    .daemon-signature {
+      text-align: center;
+      font-size: 16px;
+      color: var(--next-black);
+      margin-top: 2px;
+    }
+
+    /* Barra de Status Inferior da Janela */
+    .window-status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 2px solid var(--next-black);
+      background-color: var(--next-window-gray);
+      padding: 2px 8px;
+      font-size: 18px;
+    }
+
+    .status-corner {
+      width: 15px;
+      height: 15px;
+      border: 1px solid var(--next-dark-graphite);
+      background: linear-gradient(135deg, #d0d0d0 0%, #7a7a7a 100%);
+    }
+  </style>
+</head>
+<body>
+  <div class="next-window">
+    <!-- Barra de Título -->
+    <div class="title-bar">
+      <button class="title-btn" title="Minimizar" onclick="window.blur()">[-]</button>
+      <div class="title-text">WebNavigator - rpgasyncst.local</div>
+      <button class="title-btn" title="Fechar" onclick="fecharJanela()">✕</button>
+    </div>
+
+    <!-- Barra de Ferramentas do Navegador -->
+    <div class="toolbar-row">
+      <div class="nav-buttons">
+        <button class="nav-btn" onclick="history.back()">
+          <span class="nav-icon">⬅</span>
+          <span>Voltar</span>
+        </button>
+        <button class="nav-btn" onclick="history.forward()">
+          <span class="nav-icon">➡</span>
+          <span>Avançar</span>
+        </button>
+        <button class="nav-btn" onclick="window.location.href='/verify'">
+          <span class="nav-icon">⌂</span>
+          <span>Início</span>
+        </button>
+        <button class="nav-btn" onclick="window.location.reload()">
+          <span class="nav-icon">↻</span>
+          <span>Recarregar</span>
+        </button>
+        <button class="nav-btn" onclick="window.stop()">
+          <span class="nav-icon">■</span>
+          <span>Parar</span>
+        </button>
+      </div>
+
+      <!-- Cubo NeXT 3D -->
+      <div class="next-cube-badge" title="NeXTSTEP WebNavigator">
+        <svg width="38" height="38" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="22,2 40,11 40,31 22,42 4,31 4,11" fill="#111111" stroke="#000000" stroke-width="1.5"/>
+          <polygon points="22,2 40,11 22,20 4,11" fill="#2c2c2c"/>
+          <polygon points="4,11 22,20 22,42 4,31" fill="#181818"/>
+          <text x="10" y="19" fill="#e63946" font-family="monospace" font-weight="bold" font-size="11">N</text>
+          <text x="23" y="17" fill="#f4a261" font-family="monospace" font-weight="bold" font-size="10">e</text>
+          <text x="11" y="33" fill="#2a9d8f" font-family="monospace" font-weight="bold" font-size="11">X</text>
+          <text x="24" y="32" fill="#e9c46a" font-family="monospace" font-weight="bold" font-size="11">T</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Barra de Endereço -->
+    <div class="address-bar-row">
+      <input
+        id="url-bar"
+        class="sunken-field url-input"
+        type="text"
+        readonly
+        value="https://rpgasyncst.local/verify?token=ACT-98-7741-KHR"
+      />
+    </div>
+
+    <!-- Corpo da Página + Barra de Rolagem -->
+    <div class="viewport-wrapper">
+      <div class="page-content">
+        <!-- Cabeçalho com Logo e Título -->
+        <div class="header-banner">
+          <img
+            id="logo-img"
+            class="emblem-img"
+            src="/verify/assets/logo.png"
+            onerror="this.onerror=null; this.src='./logo.png';"
+            alt="RPGASYNCST Emblem"
+          />
+          <div class="header-texts">
+            <h1 id="main-heading">{{HEADING_TITLE}}</h1>
+            <p id="main-subtitle">{{HEADING_SUBTITLE}}</p>
+          </div>
+        </div>
+
+        <!-- GroupBox 1. Detalhes da Sincronização -->
+        <div class="group-box">
+          <span class="group-box-title">1. Detalhes da Sincronização</span>
+
+          <div class="sync-grid" id="sync-details-box">
+            <div class="sync-row">
+              <div class="sync-label">Handle / Usuário:</div>
+              <div class="sync-value" id="val-handle">{{HANDLE_USUARIO}}</div>
+            </div>
+            <div class="sync-row">
+              <div class="sync-label">Papel na Mesa:</div>
+              <div class="sync-value" id="val-role">{{PAPEL_MESA}}</div>
+            </div>
+            <div class="sync-row">
+              <div class="sync-label">Sessão / Campanha:</div>
+              <div class="sync-value" id="val-session">{{SESSAO_CAMPANHA}}</div>
+            </div>
+            <div class="sync-row">
+              <div class="sync-label">Servidor de Destino:</div>
+              <div class="sync-value" id="val-server">{{SERVIDOR_DESTINO}}</div>
+            </div>
+            <div class="sync-row">
+              <div class="sync-label">Status da Conexão:</div>
+              <div class="sync-value" id="val-status">{{STATUS_CONEXAO}}</div>
+            </div>
+          </div>
+
+          <!-- Formulário manual exibido apenas quando nenhum token foi informado na URL -->
+          <form id="manual-token-form" style="display: none; margin-top: 8px;" onsubmit="submeterTokenManual(event)">
+            <div class="sync-row">
+              <div class="sync-label">Token ou Código:</div>
+              <input
+                id="input-manual-token"
+                class="sync-input"
+                type="text"
+                placeholder="Ex: ACT-98-7741-KHR ou código de 6 dígitos"
+                required
+              />
+            </div>
+          </form>
+        </div>
+
+        <!-- Mensagem de rodapé -->
+        <p class="footer-notice" id="footer-msg">{{FOOTER_MESSAGE}}</p>
+
+        <!-- Barra de Botões -->
+        <div class="actions-row">
+          <div class="left-actions">
+            <button type="button" class="next-btn" onclick="fecharJanela()">[ Fechar Janela ]</button>
+            <button type="button" class="next-btn" onclick="mostrarSuporte()">[ Suporte ]</button>
+          </div>
+
+          <button type="button" id="primary-action-btn" class="next-btn next-btn-primary" onclick="acaoPrincipal()">
+            [ Abrir RPGASYNCST Client ↵]
+          </button>
+        </div>
+
+        <div class="daemon-signature">
+          RPGASYNCST Network Daemon v1.4 • NeXTSTEP Edition • © 1996
+        </div>
+      </div>
+
+      <!-- Barra de rolagem vertical clássica -->
+      <div class="retro-scrollbar">
+        <div class="scroll-arrow">▲</div>
+        <div class="scroll-thumb"></div>
+        <div class="scroll-arrow">▼</div>
+      </div>
+    </div>
+
+    <!-- Barra de Status Inferior -->
+    <div class="window-status-bar">
+      <span id="window-status-text">{{WINDOW_STATUS}}</span>
+      <div class="status-corner"></div>
+    </div>
+  </div>
+
+  <script>
+    (function inicializarPagina() {
+      const params = new URLSearchParams(window.location.search);
+      const tokenParam = params.get('token') || params.get('code') || 'ACT-98-7741-KHR';
+      const urlBar = document.getElementById('url-bar');
+      urlBar.value = 'https://rpgasyncst.local/verify?token=' + tokenParam;
+
+      const heading = document.getElementById('main-heading');
+      if (heading.textContent.includes('{{')) {
+        heading.textContent = 'ACESSO AUTORIZADO COM SUCESSO! ✔';
+        document.getElementById('main-subtitle').textContent =
+          'Operador, sua credencial foi confirmada e sincronizada com o nó principal da mesa!';
+        document.getElementById('val-handle').textContent = params.get('user') || 'Kaelen';
+        document.getElementById('val-role').textContent = params.get('role') || 'Jogador';
+        document.getElementById('val-session').textContent = params.get('session') || 'Crônicas de Kharos';
+        document.getElementById('val-server').textContent = params.get('server') || '127.0.0.1:8080';
+        document.getElementById('val-status').textContent = 'Ativo e Sincronizado';
+        document.getElementById('footer-msg').textContent =
+          'Seu cadastro foi validado. Você já pode fechar esta janela e retornar ao aplicativo desktop do RPGASYNCST.';
+        document.getElementById('window-status-text').textContent = 'Carregado com sucesso.';
+      }
+
+      if (document.body.dataset.mode === 'manual') {
+        document.getElementById('manual-token-form').style.display = 'block';
+        document.getElementById('primary-action-btn').textContent = '[ Validar Credencial ↵]';
+      } else if (document.body.dataset.mode === 'error') {
+        heading.classList.add('error-title');
+        document.getElementById('manual-token-form').style.display = 'block';
+        document.getElementById('primary-action-btn').textContent = '[ Tentar Novamente ↵]';
+      }
+    })();
+
+    function submeterTokenManual(e) {
+      if (e) e.preventDefault();
+      const val = document.getElementById('input-manual-token').value.trim();
+      if (val) {
+        window.location.href = '/verify?token=' + encodeURIComponent(val);
+      }
+    }
+
+    function acaoPrincipal() {
+      const mode = document.body.dataset.mode;
+      if (mode === 'manual' || mode === 'error') {
+        submeterTokenManual();
+        return;
+      }
+      document.getElementById('window-status-text').textContent =
+        'Sincronizado com o cliente desktop RPGASYNCST.';
+      window.close();
+    }
+
+    function fecharJanela() {
+      document.getElementById('window-status-text').textContent =
+        'Você já pode fechar esta aba e retornar ao aplicativo desktop.';
+      window.close();
+    }
+
+    function mostrarSuporte() {
+      alert('RPGASYNCST Network Daemon v1.4\nCanal de Suporte: asyncttrpg@gmail.com');
+    }
+  </script>
+</body>
+</html>
