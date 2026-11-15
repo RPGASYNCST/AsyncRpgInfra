@@ -47,7 +47,7 @@ flowchart TD
 | :--- | :--- |
 | [`RpgDBCrud/`](RpgDBCrud/README.md) | **API REST CRUD** em Rust (`Axum` + `SQLx`) na porta `8080` para que a aplicação `.exe` consulte as tabelas (`SESSAO_RPG`, `SESSAO_ASSETS`, `SESSAO_PLAYERS`, `PLAYERS_SHEETS`) via HTTP/JSON sem acessar o MariaDB diretamente. |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | Workflow reutilizável (`workflow_call`) com os jobs de validação, banco MariaDB efêmero para `sqlx` (`porta 3307`), testes, cobertura e `CI Gate`. |
-| [`.github/workflows/deploy-mariadb.yml`](.github/workflows/deploy-mariadb.yml) | Workflow de deploy/atualização do container **MariaDB 11.4 LTS** da aplicação (`porta 3306`, com volume persistente) e execução automática de migrations do `sqlx`. |
+| [`.github/workflows/deploy-mariadb.yml`](.github/workflows/deploy-mariadb.yml) | Workflow de deploy/atualização do container **MariaDB 11.4 LTS** da aplicação (`porta 3306`, com volume persistente) e da API `RpgDBCrud` (`porta 8080`), que aplica as próprias migrations ao subir. |
 | [`database/docker-compose.yml`](database/docker-compose.yml) | Definição Docker Compose do MariaDB da aplicação com volume persistente (`async_rpg_mariadb_data`), rede isolada e `healthcheck` nativo. |
 | [`database/conf.d/custom.cnf`](database/conf.d/custom.cnf) | Configuração do MariaDB otimizada para Rust/`sqlx` (`utf8mb4`, `utf8mb4_unicode_ci`, `UTC`, InnoDB tuning). |
 | [`database/init/01-init.sql`](database/init/01-init.sql) | Script SQL executado automaticamente na criação inicial do volume do MariaDB. |
@@ -126,7 +126,7 @@ No repositório `RPGASYNCST/AsyncRpgInfra` (ou nos Secrets da organização `RPG
 ### 5.2. Como Disparar o Deploy do MariaDB
 - **Automaticamente**: Qualquer alteração na pasta `database/` mergeada na branch `main` do `AsyncRpgInfra` dispara o workflow [`deploy-mariadb.yml`](.github/workflows/deploy-mariadb.yml).
 - **Manualmente**: Na aba **Actions** do GitHub → selecione **Deploy MariaDB (Aplicação)** → clique em **Run workflow**.
-- **Pelo Repositório da Aplicação (com Migrations)**: O repositório da aplicação também pode chamar o `deploy-mariadb.yml` após um merge na `main` para garantir que o banco está no ar e rodar `sqlx migrate run` automaticamente.
+- **Pelo Repositório da Aplicação**: O repositório da aplicação também pode chamar o `deploy-mariadb.yml` após um merge na `main` para garantir que o banco e a API estão no ar. O schema é responsabilidade exclusiva das migrations da API (`RpgDBCrud/migrations`); o deploy não roda migrations de outros repositórios.
 
 ---
 
@@ -156,7 +156,7 @@ jobs:
     uses: RPGASYNCST/AsyncRpgInfra/.github/workflows/ci.yml@main
     secrets: inherit
 
-  # 2. (Opcional) Quando código é mergeado na main, garante o MariaDB de produção ativo e aplica as migrations do sqlx
+  # 2. (Opcional) Quando código é mergeado na main, garante o MariaDB e a API de produção ativos
   deploy-database:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [pipeline]

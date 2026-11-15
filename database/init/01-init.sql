@@ -1,82 +1,8 @@
+-- Script executado automaticamente na primeira inicialização do volume do MariaDB.
+--
+-- O banco (MARIADB_DATABASE) e o usuário da aplicação (MARIADB_USER, com todos os
+-- privilégios nesse banco) já são criados pela imagem oficial do MariaDB a partir do .env.
+--
+-- As tabelas NÃO são criadas aqui: a fonte única do schema são as migrations da API
+-- (RpgDBCrud/migrations), aplicadas automaticamente quando a API sobe.
 SET NAMES utf8mb4;
-
-CREATE DATABASE IF NOT EXISTS `asyncrpg`
-    CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
-
-USE `asyncrpg`;
-
-GRANT ALL PRIVILEGES ON `asyncrpg`.* TO 'asyncrpgadmin'@'%';
-FLUSH PRIVILEGES;
-
-CREATE TABLE IF NOT EXISTS SESSAO_RPG (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    name VARCHAR(255) NOT NULL,
-    description TEXT NULL,
-    `system` VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS SESSAO_ASSETS (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    sessao_id BIGINT UNSIGNED NOT NULL,
-    glob TEXT NOT NULL,
-    description TEXT NULL,
-    resume TEXT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    INDEX idx_sessao_assets_sessao_id (sessao_id),
-    CONSTRAINT fk_sessao_assets_sessao
-        FOREIGN KEY (sessao_id) REFERENCES SESSAO_RPG (id)
-        ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS SESSAO_PLAYERS (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    sessao_id BIGINT UNSIGNED NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    player_name VARCHAR(255) NOT NULL,
-    resume TEXT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    INDEX idx_sessao_players_sessao_id (sessao_id),
-    CONSTRAINT fk_sessao_players_sessao
-        FOREIGN KEY (sessao_id) REFERENCES SESSAO_RPG (id)
-        ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS PLAYERS_SHEETS (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    sessao_id BIGINT UNSIGNED NOT NULL,
-    players_id BIGINT UNSIGNED NOT NULL,
-    `system` VARCHAR(100) NOT NULL,
-    sheet JSON NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    INDEX idx_players_sheets_sessao_id (sessao_id),
-    INDEX idx_players_sheets_players_id (players_id),
-    CONSTRAINT fk_players_sheets_sessao
-        FOREIGN KEY (sessao_id) REFERENCES SESSAO_RPG (id)
-        ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT fk_players_sheets_player
-        FOREIGN KEY (players_id) REFERENCES SESSAO_PLAYERS (id)
-        ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS app_metadata (
-    meta_key VARCHAR(64) NOT NULL PRIMARY KEY,
-    meta_value TEXT NOT NULL,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-INSERT INTO app_metadata (meta_key, meta_value)
-VALUES ('schema_version', '1.0.0'),
-       ('app_name', 'AsyncTTRPG96')
-ON DUPLICATE KEY UPDATE
-    meta_value = VALUES(meta_value),
-    updated_at = CURRENT_TIMESTAMP;
